@@ -15,5 +15,6 @@ A prévia, cinema, PNG e vídeo acompanham o tema do aplicativo. O botão duplic
 ## Verificação
 
 - Testes de Tops 5/10/15/20/30, heap versus ordenação de referência, acumulados com itens fora do Top 100, períodos ausentes/vazios, troca de época e datas de ano/mês/semana, incluindo limites do calendário e futuro.
+- Fronteira visual do Top de Barras: correção no limite inferior para que competidores fora do Top não criem uma barra extra esmaecida abaixo do ranking, nem exibam posição duplicada durante transições. Validado via testes unitários para Tops 5, 10, 15, 20 e 30 em quadros estáticos e em transição.
 - Opera com histórico real: agosto de 2026 enviado com cinco períodos; play avançou até 5/5. Semana de 19/08/26 enviada como sete dias e reprodução de Linhas iniciada. Ranking anual único convertido em 11 meses reais de 2026 e Tops 5–30 preparados e reproduzidos.
 - Layouts 320, 384 e 430 px sem overflow e sem controles sobre o canvas. As verificações automatizadas e o build são executados antes da publicação. Emulação não equivale a medição de temperatura em aparelho físico.
