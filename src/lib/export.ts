@@ -12,7 +12,7 @@ export function csvCell(value: unknown) {
   return `"${s.replace(/"/g, '""')}"`;
 }
 export function chartCSV(entries: ChartEntry[]) {
-  return '\ufeff' + [['Posição', 'Variação', 'Título', 'Artista', 'Álbum', 'Reproduções', 'Pico Top 100', 'Semanas Top 100', 'Chart run'], ...entries.map(e => [e.rank, e.change, e.name, e.artist, e.album, e.plays, e.peak, e.weeks, e.run.map(r => `${r.week}:${r.rank === undefined ? '?' : r.rank ?? 'OUT'}`).join(' | ')])].map(row => row.map(csvCell).join(',')).join('\r\n');
+  return '\ufeff' + [['Posição', 'Variação', 'Semanas fora antes do retorno', 'Total semanas fora', 'Título', 'Artista', 'Álbum', 'Reproduções', 'Pico Top 100', 'Semanas Top 100', 'Chart run'], ...entries.map(e => [e.rank, e.change, e.hiatusWeeks ?? '', e.weeksOut ?? 0, e.name, e.artist, e.album, e.plays, e.peak, e.weeks, e.run.map(r => `${r.week}:${r.rank === undefined ? '?' : r.rank ?? `OUT(${r.plays ?? 0}p)`}`).join(' | ')])].map(row => row.map(csvCell).join(',')).join('\r\n');
 }
 export function backupJSON(settings: Settings, weeks: CachedWeek[], profile: Profile | null) {
   const { apiKey: _key, ...safeSettings } = settings;
@@ -30,7 +30,8 @@ export function parseBackup(text: string): { settings: Settings; weeks: CachedWe
         .slice(0, 500)
         .map((r: NonNullable<Settings['aliases']>[number]) => ({ id: String(r.id ?? crypto.randomUUID()), kind: r.kind, artist: String(r.artist ?? '').slice(0, 300), from: r.from.slice(0, 300), to: r.to.slice(0, 300) }))
     : [];
-  const settings: Settings = { ...defaults, user: s.user, startDate: s.startDate, timezone: s.timezone, theme: ['light','dark','system'].includes(s.theme) ? s.theme : 'system', deduplicate: s.deduplicate === true, reducedMotion: s.reducedMotion === true, apiKey: '', aliases };
+  const avatar = typeof s.avatar === 'string' && /^[\w-]{1,40}$/.test(s.avatar) ? s.avatar : 'lastfm';
+  const settings: Settings = { ...defaults, user: s.user, startDate: s.startDate, timezone: s.timezone, theme: ['light','dark','system'].includes(s.theme) ? s.theme : 'system', deduplicate: s.deduplicate === true, reducedMotion: s.reducedMotion === true, apiKey: '', avatar, aliases };
   const canonical = new Map(makeWeeks(settings).map(w => [w.id, w]));
   const ids = new Set<string>();
   const weeks = data.weeks.map((w: CachedWeek) => {

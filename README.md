@@ -42,6 +42,20 @@ npm test            # Suíte unitária Vitest (calendário, charts, aliases, API
 npm run build       # Typecheck + build de produção em dist/
 ```
 
+## Publicação sem Badge no Plano Gratuito (Vercel ou Cloudflare Pages)
+
+O projeto possui adaptadores serverless prontos tanto para **Vercel** ([`vercel.json`](vercel.json) + [`api/`](api/)) quanto para **Cloudflare Pages** ([`functions/api/`](functions/api/)), funcionando exatamente igual à Netlify (mesma API Last.fm, mesmas capas/prévias iTunes, HTTPS e PWA), **sem exibir nenhum selo na tela no plano gratuito**:
+
+### Opção A — Vercel (Recomendado)
+1. Acesse https://vercel.com/new e importe o repositório `davidsilvagx/ChartsDavid`.
+2. Em **Environment Variables**, adicione `LASTFM_API_KEY` com sua chave da API do Last.fm.
+3. Clique em **Deploy** (`vercel.json` configura automaticamente `npm run build`, `dist` e `/api/*`).
+
+### Opção B — Cloudflare Pages
+1. Acesse **Cloudflare Dashboard → Workers & Pages → Create → Pages → Connect to Git** e selecione `davidsilvagx/ChartsDavid`.
+2. Configure **Build command**: `npm run build` e **Build output directory**: `dist`.
+3. Em **Settings → Environment variables**, adicione `LASTFM_API_KEY` e publique.
+
 ## Publicação na Netlify
 
 O projeto já inclui [`netlify.toml`](netlify.toml) e as Netlify Functions em [`netlify/functions/`](netlify/functions/):

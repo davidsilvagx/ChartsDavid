@@ -730,7 +730,8 @@ progress::-webkit-progress-value {
   border-radius: 50%;
   display: grid;
   place-items: center;
-  background: linear-gradient(135deg, var(--accent-soft), var(--surface-alt));
+  background: var(--surface-alt);
+  border: 1.5px solid color-mix(in oklab, var(--accent) 32%, var(--line-strong));
   color: var(--accent);
   font-weight: 800;
   font-size: 0.85rem;
@@ -738,10 +739,33 @@ progress::-webkit-progress-value {
   flex-shrink: 0;
 }
 
-.avatar img {
+.avatar img,
+.avatar svg {
   width: 100%;
   height: 100%;
+  display: block;
   object-fit: cover;
+}
+
+.avatar-lg {
+  width: 52px;
+  height: 52px;
+}
+
+.avatar-xl {
+  width: 66px;
+  height: 66px;
+  border-width: 2px;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.36);
+}
+
+.avatar-tile {
+  width: 72px;
+  height: 72px;
+  border-width: 2px;
+  border-color: color-mix(in oklab, var(--avatar-accent, var(--accent)) 35%, var(--line-strong));
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.3);
+  transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1), border-color 0.18s ease, box-shadow 0.22s ease;
 }
 
 .mobile-brand,
@@ -1629,7 +1653,7 @@ main {
 
   .ranking-table tbody tr {
     display: grid;
-    grid-template-columns: 42px minmax(0, 1fr) auto;
+    grid-template-columns: 48px minmax(0, 1fr) auto;
     align-items: center;
     gap: 10px;
     padding: 10px 14px;
@@ -1743,8 +1767,15 @@ main {
   color: var(--cyan);
   background: color-mix(in oklab, var(--cyan) 14%, transparent);
   border-radius: 6px;
-  padding: 2px 6px;
-  font-size: 0.62rem;
+  padding: 2px 5px;
+  font-size: 0.61rem;
+  white-space: nowrap;
+}
+
+.re-gap {
+  font-size: 0.56rem;
+  font-weight: 700;
+  opacity: 0.9;
 }
 
 /* Artist Dominance Panel */
@@ -2981,6 +3012,36 @@ dialog.modal::backdrop {
   color: var(--muted);
 }
 
+.hiatus-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 13px 15px;
+  margin-bottom: 18px;
+  border-radius: 14px;
+  background: color-mix(in oklab, var(--cyan) 10%, var(--surface-alt));
+  border: 1px solid color-mix(in oklab, var(--cyan) 28%, var(--line));
+}
+
+.hiatus-banner > svg {
+  color: var(--cyan);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.hiatus-banner strong {
+  display: block;
+  font-size: 0.82rem;
+  line-height: 1.3;
+}
+
+.hiatus-banner p {
+  font-size: 0.73rem;
+  color: var(--muted);
+  margin-top: 3px;
+  line-height: 1.4;
+}
+
 .section-subhead {
   margin-bottom: 10px;
 }
@@ -2995,12 +3056,12 @@ dialog.modal::backdrop {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 5px;
-  padding: 8px 6px;
+  gap: 3px;
+  padding: 7px 6px;
   background: var(--surface-alt);
   border: 1px solid var(--line);
   border-radius: 10px;
-  min-width: 46px;
+  min-width: 50px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -3011,6 +3072,13 @@ dialog.modal::backdrop {
 
 .chart-run strong {
   font-size: 0.78rem;
+}
+
+.run-plays {
+  font-style: normal;
+  font-size: 0.58rem;
+  color: var(--muted);
+  line-height: 1.1;
 }
 
 .chart-run .peak {
@@ -3032,6 +3100,152 @@ dialog.modal::backdrop {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+/* Netflix-style Musical Avatar Showcase & Picker */
+.profile-avatar-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background:
+    radial-gradient(circle at 0% 50%, color-mix(in oklab, var(--accent) 14%, transparent), transparent 65%),
+    var(--surface-alt);
+  border: 1px solid var(--line-strong);
+}
+
+.profile-avatar-copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.profile-avatar-copy strong {
+  display: block;
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.profile-avatar-copy small {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.74rem;
+  color: var(--muted);
+}
+
+.avatar-picker-hero {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 18px;
+  margin-bottom: 18px;
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at 12% 30%, color-mix(in oklab, var(--accent) 18%, transparent), transparent 55%),
+    radial-gradient(circle at 88% 80%, color-mix(in oklab, var(--cyan) 14%, transparent), transparent 55%),
+    var(--surface-alt);
+  border: 1px solid var(--line-strong);
+}
+
+.avatar-picker-meta {
+  flex: 1;
+  min-width: 0;
+}
+
+.avatar-picker-meta h3 {
+  font-size: 1.08rem;
+  font-weight: 800;
+  margin-top: 3px;
+  overflow-wrap: anywhere;
+}
+
+.avatar-picker-meta p {
+  font-size: 0.76rem;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.avatar-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(128px, 1fr));
+  gap: 12px;
+}
+
+.avatar-choice {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 6px;
+  padding: 14px 8px 12px;
+  min-height: 132px;
+  border-radius: 18px;
+  background: var(--surface-alt);
+  border: 1.5px solid var(--line);
+  transition: transform 0.2s cubic-bezier(0.22, 1, 0.36, 1), border-color 0.18s ease, background-color 0.18s ease, box-shadow 0.2s ease;
+}
+
+.avatar-choice:hover {
+  transform: translateY(-3px);
+  border-color: color-mix(in oklab, var(--avatar-accent, var(--accent)) 58%, var(--line-strong));
+  background: color-mix(in oklab, var(--avatar-accent, var(--accent)) 8%, var(--surface-alt));
+}
+
+.avatar-choice:hover .avatar-tile {
+  transform: scale(1.05);
+  border-color: var(--avatar-accent, var(--accent));
+}
+
+.avatar-choice.selected {
+  border-color: var(--avatar-accent, var(--accent));
+  background:
+    radial-gradient(circle at 50% 28%, color-mix(in oklab, var(--avatar-accent, var(--accent)) 22%, transparent), transparent 68%),
+    var(--surface-elev);
+  box-shadow: 0 12px 28px color-mix(in oklab, var(--avatar-accent, var(--accent)) 18%, transparent);
+}
+
+.avatar-choice.selected .avatar-tile {
+  border-color: var(--avatar-accent, var(--accent));
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--avatar-accent, var(--accent)) 28%, transparent);
+}
+
+.avatar-choice:focus-visible {
+  outline: 2.5px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.avatar-choice-art {
+  position: relative;
+  display: inline-flex;
+  margin-bottom: 2px;
+}
+
+.avatar-check {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--accent-ink);
+  border: 2px solid var(--surface);
+  display: grid;
+  place-items: center;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.35);
+}
+
+.avatar-choice-title {
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.avatar-choice-vibe {
+  font-size: 0.67rem;
+  color: var(--muted);
+  line-height: 1.2;
 }
 
 .field {
@@ -3562,10 +3776,38 @@ dialog.modal::backdrop {
   .modal-footer .button {
     width: 100%;
   }
+
+  .profile-avatar-card,
+  .avatar-picker-hero {
+    flex-wrap: wrap;
+  }
+
+  .profile-avatar-card .button,
+  .avatar-picker-hero .button {
+    width: 100%;
+  }
+
+  .avatar-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .avatar-tile {
+    width: 60px;
+    height: 60px;
+  }
+
+  .avatar-choice {
+    padding: 12px 6px 10px;
+    min-height: 118px;
+  }
 }
 
 /* Extra-compact phones & High Screen-Zoom Galaxy Ultra (320px–368px CSS width) */
 @media (max-width: 368px) {
+  .avatar-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
   main {
     padding: 14px 12px calc(90px + env(safe-area-inset-bottom, 0px));
   }
@@ -3622,8 +3864,13 @@ dialog.modal::backdrop {
   .button,
   .panel,
   .stat-card,
+  .avatar-choice,
+  .avatar-choice.selected,
   .nav-link.active,
   .mobile-nav button.active {
     border: 1px solid ButtonText;
+  }
+  .avatar-choice.selected {
+    outline: 2px solid Highlight;
   }
 }

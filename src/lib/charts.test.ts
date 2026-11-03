@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { makeWeeks, namespace, validateCalendar } from './calendar';
-import { buildCharts, computeRecords, getCertification, getLibrary, itemOf, trimTimeline } from './charts';
+import { buildCharts, computeRecords, getCertification, getItemAuditHistory, getLibrary, itemOf, trimTimeline } from './charts';
 import { defaults, type CachedWeek, type Scrobble } from './types';
 import { chartCSV, parseBackup, backupJSON } from './export';
 const settings={...defaults,user:'test',timezone:'UTC'};
@@ -46,4 +46,137 @@ describe('Exportação e importação',()=>{
  it('backup não expõe API key e restaura dados validados',()=>{const raw=backupJSON({...settings,apiKey:'secret'},[cache(0,[scrobble(0)])],null);expect(raw).not.toContain('secret');const restored=parseBackup(raw);expect(restored.weeks[0].scrobbles).toHaveLength(1);expect(restored.settings.apiKey).toBe('');});
  it('rejeita duplicatas de semana e timestamps fora do intervalo',()=>{const bad=JSON.parse(backupJSON(settings,[cache(0,[scrobble(0)])],null));bad.weeks[0].scrobbles[0].timestamp=1;expect(()=>parseBackup(JSON.stringify(bad))).toThrow('Scrobble');const duplicated=backupJSON(settings,[cache(0,[]),cache(0,[])],null);expect(()=>parseBackup(duplicated)).toThrow('duplicada');});
  it('rejeita conteúdo desconhecido e datas incompatíveis',()=>{expect(()=>parseBackup('{}')).toThrow('backup');const bad=JSON.parse(backupJSON(settings,[],null));bad.settings.startDate='2016-06-25';expect(()=>parseBackup(JSON.stringify(bad))).toThrow('sexta');});
+});
+
+describe('Integridade contra posições fictícias, épocas vazias e tempo fora do chart', () => {
+  const tenWeeks = makeWeeks(settings, Date.parse('2016-08-27T12:00:00Z')); // 10 semanas
+  const cacheW = (idx: number, scrobbles: Scrobble[]): CachedWeek => ({
+    key: String(idx),
+    week: tenWeeks[idx],
+    scrobbles,
+    cutoff: tenWeeks[idx].end,
+    fetchedAt: 1,
+    duplicates: 0,
+  });
+  const repW = (idx: number, name: string, count: number) =>
+    Array.from({ length: count }, (_, i) => ({
+      timestamp: tenWeeks[idx].start + 100 + i,
+      track: name,
+      artist: 'Artist',
+      album: 'Album',
+      image: '',
+    }));
+
+  it('jamais coloca músicas sem play nas últimas posições (#4..#100)', () => {
+    // Semana 1 tem 25 músicas; Semana 2 tem apenas 3 músicas tocadas (as outras 22 tiveram 0 plays)
+    const w1Scrobbles = Array.from({ length: 25 }, (_, i) => repW(0, `Track-${i + 1}`, 30 - i)).flat();
+    const w2Scrobbles = [...repW(1, 'Track-1', 5), ...repW(1, 'Track-2', 3), ...repW(1, 'NewTrack', 1)];
+    const result = buildCharts(tenWeeks.slice(0, 2), [cacheW(0, w1Scrobbles), cacheW(1, w2Scrobbles)], 'tracks');
+
+    expect(result[0].entries).toHaveLength(25);
+    expect(result[1].entries).toHaveLength(3); // Exatamente 3 posições, nunca preenche #4..#100!
+    expect(result[1].entries.map(e => [e.rank, e.name, e.plays])).toEqual([
+      [1, 'Track-1', 5],
+      [2, 'Track-2', 3],
+      [3, 'NewTrack', 1],
+    ]);
+    expect(result[1].entries.every(e => e.plays >= 1)).toBe(true);
+  });
+
+  it('trata épocas com Last.fm 100% vazio sem inventar dados e calcula hiatusWeeks exato no retorno', () => {
+    // Sem. 1: Hit toca 6x (#1). Sem. 2, 3 e 4: Last.fm completamente vazio (0 scrobbles). Sem. 5: Hit volta com 2 plays.
+    const result = buildCharts(
+      tenWeeks.slice(0, 5),
+      [cacheW(0, repW(0, 'Hit', 6)), cacheW(1, []), cacheW(2, []), cacheW(3, []), cacheW(4, repW(4, 'Hit', 2))],
+      'tracks',
+    );
+
+    expect(result[1].status).toBe('loaded');
+    expect(result[1].entries).toEqual([]);
+    expect(result[2].entries).toEqual([]);
+    expect(result[3].entries).toEqual([]);
+
+    const reEntry = result[4].entries[0];
+    expect(reEntry.change).toBe('RE');
+    expect(reEntry.hiatusWeeks).toBe(3); // Exatamente 3 semanas fora do chart (0 plays)!
+    expect(reEntry.weeksOut).toBe(3);
+    expect(reEntry.weeks).toBe(2);
+    expect(reEntry.run.map(r => [r.rank, r.plays])).toEqual([
+      [1, 6],
+      [null, 0],
+      [null, 0],
+      [null, 0],
+      [1, 2],
+    ]);
+  });
+
+  it('exibe todas as semanas fora após a última aparição até o presente via getItemAuditHistory', () => {
+    // Música toca na Sem. 1 e Sem. 2, depois fica Sem. 3, 4, 5 e 6 com 0 plays sem nunca retornar
+    const result = buildCharts(
+      tenWeeks.slice(0, 6),
+      [
+        cacheW(0, repW(0, 'EarlySong', 4)),
+        cacheW(1, repW(1, 'EarlySong', 2)),
+        cacheW(2, repW(2, 'OtherSong', 5)),
+        cacheW(3, []),
+        cacheW(4, repW(4, 'OtherSong', 3)),
+        cacheW(5, []),
+      ],
+      'tracks',
+    );
+    const id = result[0].entries[0].id;
+    const audit = getItemAuditHistory(result, id);
+
+    expect(audit.charted).toBe(true);
+    expect(audit.weeks).toBe(2);
+    expect(audit.totalWeeksOut).toBe(4);
+    expect(audit.currentOutStreak).toBe(4);
+    expect(audit.longestOutStreak).toBe(4);
+    expect(audit.zeroPlayWeeks).toBe(4);
+    expect(audit.run.map(r => r.rank)).toEqual([1, 1, null, null, null, null]);
+  });
+
+  it('não inventa contagem de semanas fora (hiatusWeeks = null) quando há semana não sincronizada no meio', () => {
+    // Sem. 1 carregada -> Sem. 2 NÃO sincronizada (missing) -> Sem. 3 vazia carregada -> Sem. 4 retorno
+    const result = buildCharts(
+      tenWeeks.slice(0, 4),
+      [cacheW(0, repW(0, 'SongX', 3)), cacheW(2, []), cacheW(3, repW(3, 'SongX', 2))],
+      'tracks',
+    );
+    const reEntry = result[3].entries[0];
+    expect(reEntry.change).toBe('RE');
+    expect(reEntry.hiatusWeeks).toBeNull(); // Honesto: Sem. 2 não foi sincronizada!
+    const audit = getItemAuditHistory(result, reEntry.id);
+    expect(audit.missingWeeksSinceDebut).toBe(1);
+    expect(audit.run.map(r => r.rank)).toEqual([1, undefined, null, 1]);
+  });
+
+  it('impede vazamento de scrobble de quinta 23:59:59 para sexta 00:00:00 como posição fantasma', () => {
+    const thursday235959: Scrobble = {
+      timestamp: tenWeeks[1].start - 1, // 1 segundo antes de abrir a Semana 2
+      track: 'Ghost',
+      artist: 'Artist',
+      album: 'Album',
+      image: '',
+    };
+    const result = buildCharts(tenWeeks.slice(1, 2), [cacheW(1, [thursday235959])], 'tracks');
+    expect(result[0].plays).toBe(0);
+    expect(result[0].entries).toHaveLength(0);
+  });
+
+  it('exporta semanas fora no CSV e preserva avatar musical no backup JSON', () => {
+    const result = buildCharts(
+      tenWeeks.slice(0, 4),
+      [cacheW(0, repW(0, 'Hit', 4)), cacheW(1, []), cacheW(2, []), cacheW(3, repW(3, 'Hit', 2))],
+      'tracks',
+    );
+    const csv = chartCSV(result[3].entries);
+    expect(csv).toContain('Semanas fora antes do retorno');
+    expect(csv).toContain('"2","2","Hit"');
+    expect(csv).toContain('OUT(0p)');
+
+    const json = backupJSON({ ...settings, avatar: 'synth-wave' }, [cache(0, [scrobble(0)])], null);
+    const parsed = parseBackup(json);
+    expect(parsed.settings.avatar).toBe('synth-wave');
+  });
 });

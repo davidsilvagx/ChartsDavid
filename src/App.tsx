@@ -46,14 +46,15 @@ import {
   X,
 } from 'lucide-react';
 import { useData } from './lib/useData';
-import { type AliasRule, type ChartEntry, type ChartWeek, type Item, type Kind, type Settings, studioDefaults } from './lib/types';
+import { type AliasRule, type ChartEntry, type ChartWeek, type Item, type Kind, type Profile, type Settings, studioDefaults } from './lib/types';
 import { validateCalendar } from './lib/calendar';
-import { computeRecords, getCertification } from './lib/charts';
+import { computeRecords, getCertification, getItemAuditHistory } from './lib/charts';
 import { renderWeeklyShareCard, palettes } from './lib/canvas';
 import { resolveCatalogMedia } from './lib/catalog';
 import { backupJSON, chartCSV, download, parseBackup } from './lib/export';
 import { importWeeks } from './lib/storage';
 import { Cover, Change, Empty, MiniPlayer, Modal, Sparkline, number, type PreviewPlayerState } from './components/UI';
+import { AvatarPickerModal, ProfileAvatar, getAvatarLabel } from './components/Avatars';
 import { ChartCanvas } from './components/ChartCanvas';
 import { Studio } from './components/Studio';
 import './styles.css';
@@ -97,6 +98,7 @@ function App() {
   const [studioSeed, setStudioSeed] = useState<string[] | undefined>(undefined);
   const [exportingCard, setExportingCard] = useState(false);
   const [help, setHelp] = useState(false);
+  const [avatarModal, setAvatarModal] = useState(false);
   const [installHelp, setInstallHelp] = useState(false);
   const [installPrompt, setInstallPrompt] = useState<InstallPrompt | null>(null);
   const [online, setOnline] = useState(navigator.onLine);
@@ -462,10 +464,13 @@ function App() {
             >
               {dark ? <Sun size={18} /> : <Moon size={18} />}
             </button>
-            <button type="button" className="profile-button" onClick={() => navigate('settings')} aria-label="Configurar perfil">
-              <span className="avatar">
-                {profile?.image ? <img src={profile.image} alt="" /> : settings.user.slice(0, 1).toUpperCase() || 'L'}
-              </span>
+            <button
+              type="button"
+              className="profile-button"
+              onClick={() => setAvatarModal(true)}
+              aria-label={`Trocar avatar do perfil ${profile?.name ?? settings.user ?? 'Perfil'}`}
+            >
+              <ProfileAvatar profile={profile} avatar={settings.avatar} className="avatar" />
               <span className="profile-meta">
                 <strong>{profile?.name ?? settings.user ?? 'Perfil'}</strong>
                 <small>{loaded.length} sem. salvas</small>
@@ -588,8 +593,10 @@ function App() {
           {page === 'settings' ? (
             <SettingsPage
               settings={settings}
+              profile={profile}
               busy={!!progress}
               setSettings={setSettings}
+              onPickAvatar={() => setAvatarModal(true)}
               onSync={(scope, force) => data.sync(scope, force)}
               onError={data.setError}
               onNotice={data.setNotice}
@@ -1260,6 +1267,21 @@ function App() {
         />
       )}
 
+      {avatarModal && (
+        <AvatarPickerModal
+          username={profile?.name ?? settings.user}
+          profile={profile}
+          avatar={settings.avatar}
+          onSelect={avatarId => {
+            setSettings({ ...settings, avatar: avatarId });
+            data.setNotice('Avatar do perfil atualizado.');
+            setAvatarModal(false);
+          }}
+          onOpenSettings={() => navigate('settings')}
+          onClose={() => setAvatarModal(false)}
+        />
+      )}
+
       {help && (
         <Modal title="Metodologia & Arquitetura" subtitle="Como seus scrobbles viram charts auditáveis" onClose={() => setHelp(false)}>
           <div className="prose">
@@ -1371,7 +1393,7 @@ function Ranking({
                   </span>
                 </td>
                 <td className="desktop-change">
-                  <Change value={e.change} />
+                  <Change value={e.change} hiatusWeeks={e.hiatusWeeks} />
                 </td>
                 <td className="item-cell">
                   <button type="button" className="track-button" onClick={() => onDetail(e)}>
@@ -1381,6 +1403,7 @@ function Ranking({
                       <small>{e.artist}</small>
                       <span className="mobile-stats-inline">
                         <b>{number(e.plays)} plays</b> · Pico #{e.peak} · {e.weeks} sem.
+                        {e.change === 'RE' && e.hiatusWeeks ? ` · voltou após ${e.hiatusWeeks} sem. fora` : ''}
                       </span>
                     </span>
                   </button>
@@ -1553,10 +1576,8 @@ function Detail({
   favorite: boolean;
   onFavorite: () => void;
 }) {
-  const runs = charts.filter(w => w.entries.some(e => e.id === item.id));
-  const last = runs.at(-1)?.entries.find(e => e.id === item.id);
-  const totalKnownPlays = last ? last.totalPlays : item.plays;
-  const cert = getCertification(totalKnownPlays);
+  const audit = getItemAuditHistory(charts, item.id, item.plays);
+  const cert = getCertification(audit.totalPlays);
   const q = encodeURIComponent(`${item.artist} ${item.name}`);
 
   return (
@@ -1588,43 +1609,69 @@ function Detail({
 
       <div className="detail-stats">
         <div>
-          <strong>{last ? `#${last.peak}` : '—'}</strong>
+          <strong>{audit.peak ? `#${audit.peak}` : '—'}</strong>
           <span>Pico no Top 100</span>
         </div>
         <div>
-          <strong>{last?.weeks ?? 0}</strong>
+          <strong>{audit.weeks}</strong>
           <span>Semanas no chart</span>
         </div>
         <div>
-          <strong>{last?.weeksAtOne ?? 0}</strong>
-          <span>Semanas em #1</span>
+          <strong>{audit.totalWeeksOut}</strong>
+          <span>Semanas fora (OUT)</span>
         </div>
         <div>
-          <strong>{number(totalKnownPlays)}</strong>
+          <strong>{number(audit.totalPlays)}</strong>
           <span>Plays acumulados</span>
         </div>
       </div>
 
-      <h3 className="section-subhead">Chart Run (Semana a Semana)</h3>
-      {last ? (
+      {audit.charted && (audit.totalWeeksOut > 0 || audit.missingWeeksSinceDebut > 0) && (
+        <div className="hiatus-banner" role="status">
+          <History size={17} />
+          <div>
+            <strong>
+              {audit.currentOutStreak > 0
+                ? `Atualmente há ${audit.currentOutStreak} ${audit.currentOutStreak === 1 ? 'semana' : 'semanas'} fora do Top 100`
+                : `Presente no chart · esteve fora em ${audit.totalWeeksOut} ${audit.totalWeeksOut === 1 ? 'semana' : 'semanas'} desde a estreia`}
+            </strong>
+            <p>
+              {audit.zeroPlayWeeks > 0 ? `${audit.zeroPlayWeeks} sem. sem nenhum play (0p) · ` : ''}
+              Maior hiato fora do chart: {audit.longestOutStreak} sem.
+              {audit.weeksAtOne > 0 ? ` · ${audit.weeksAtOne}× em #1` : ''}
+              {audit.missingWeeksSinceDebut > 0 ? ` · ${audit.missingWeeksSinceDebut} sem. não sincronizada(s) (?)` : ''}
+            </p>
+          </div>
+        </div>
+      )}
+
+      <h3 className="section-subhead">Chart Run Completo (Estreia até Hoje)</h3>
+      {audit.charted ? (
         <div className="chart-run">
-          {last.run.map(r => (
+          {audit.run.map(r => (
             <span
               key={r.week}
-              title={r.week}
+              title={
+                r.rank === undefined
+                  ? `Sem. ${r.number} (${r.label}/${r.year}): não sincronizada`
+                  : r.rank === null
+                    ? `Sem. ${r.number} (${r.label}/${r.year}): fora do Top 100 (${r.plays ?? 0} plays)`
+                    : `Sem. ${r.number} (${r.label}/${r.year}): #${r.rank} (${r.plays ?? 0} plays)`
+              }
               className={r.rank === 1 ? 'peak' : typeof r.rank === 'number' && r.rank <= 10 ? 'top10-cell' : typeof r.rank === 'number' ? '' : 'absent'}
             >
               <small>{r.week.slice(5).split('-').reverse().join('/')}</small>
-              <strong>{r.rank === undefined ? '?' : r.rank ?? 'OUT'}</strong>
+              <strong>{r.rank === undefined ? '?' : r.rank ? `#${r.rank}` : 'OUT'}</strong>
+              <em className="run-plays">{r.rank === undefined ? 's/ dados' : `${r.plays ?? 0}p`}</em>
             </span>
           ))}
         </div>
       ) : (
-        <p className="note">Este item ainda não figurou no Top 100 das semanas sincronizadas.</p>
+        <p className="note">Este item não alcançou o Top 100 nas semanas sincronizadas (sem posições inventadas).</p>
       )}
 
       <p className="note">
-        Certificações pessoais: Prata (12+), Ouro (25+), Platina (50+), 2× Platina (100+) e Diamante (200+ plays). OUT indica fora do Top 100; ? indica semana não baixada.
+        Transparência ZeroCharts: apenas faixas com plays reais na janela de sexta 00:00 a quinta 23:59 entram no ranking. OUT indica semana fora do chart (0p = zero plays); ? indica semana ainda não baixada.
       </p>
 
       <div className="listen-links">
@@ -1647,7 +1694,9 @@ function Detail({
 
 function SettingsPage({
   settings,
+  profile,
   setSettings,
+  onPickAvatar,
   busy,
   onSync,
   onError,
@@ -1661,7 +1710,9 @@ function SettingsPage({
   onInstall,
 }: {
   settings: Settings;
+  profile: Profile | null;
   setSettings: (s: Settings) => void;
+  onPickAvatar: () => void;
   busy: boolean;
   onSync: (scope: 'recent' | 'all' | number, force?: boolean) => void;
   onError: (s: string) => void;
@@ -1681,7 +1732,16 @@ function SettingsPage({
   const [aliasFrom, setAliasFrom] = useState('');
   const [aliasTo, setAliasTo] = useState('');
 
-  useEffect(() => setDraft(settings), [settings]);
+  useEffect(() => {
+    setDraft(d => ({
+      ...d,
+      user: settings.user,
+      startDate: settings.startDate,
+      timezone: settings.timezone,
+      apiKey: settings.apiKey,
+      deduplicate: settings.deduplicate,
+    }));
+  }, [settings.user, settings.startDate, settings.timezone, settings.apiKey, settings.deduplicate]);
 
   const change = <K extends keyof Settings>(k: K, v: Settings[K]) => setDraft(d => ({ ...d, [k]: v }));
 
@@ -1695,7 +1755,14 @@ function SettingsPage({
       if (draft.apiKey && !/^[a-f\d]{32}$/i.test(draft.apiKey.trim())) {
         throw new Error('A chave Last.fm deve ter 32 caracteres hexadecimais.');
       }
-      setSettings({ ...draft, user: draft.user.trim(), apiKey: draft.apiKey.trim() });
+      setSettings({
+        ...settings,
+        user: draft.user.trim(),
+        startDate: draft.startDate,
+        timezone: draft.timezone,
+        apiKey: draft.apiKey.trim(),
+        deduplicate: draft.deduplicate,
+      });
       onNotice('Ajustes salvos com sucesso. Sincronize para carregar dados neste calendário.');
     } catch (err) {
       onError(err instanceof Error ? err.message : 'Configuração inválida.');
@@ -1740,6 +1807,18 @@ function SettingsPage({
             </div>
           </div>
           <fieldset disabled={busy}>
+            <div className="profile-avatar-card">
+              <ProfileAvatar profile={profile} avatar={settings.avatar} className="avatar avatar-lg" />
+              <div className="profile-avatar-copy">
+                <strong>Avatar do perfil</strong>
+                <small>{getAvatarLabel(settings.avatar, !!profile?.image)}</small>
+              </div>
+              <button type="button" className="button small" onClick={onPickAvatar}>
+                <Sparkles size={15} />
+                <span>Escolher avatar</span>
+              </button>
+            </div>
+
             <label>
               Usuário Last.fm
               <input

@@ -17,6 +17,7 @@ export interface Settings {
   apiKey: string;
   deduplicate: boolean;
   reducedMotion: boolean;
+  avatar?: string;
   aliases?: AliasRule[];
 }
 
@@ -57,15 +58,23 @@ export interface Item {
   plays: number;
 }
 
+export interface ChartRunStep {
+  week: string;
+  rank: number | null | undefined;
+  plays?: number;
+}
+
 export interface ChartEntry extends Item {
   rank: number;
   previous: number | null;
   change: number | 'NEW' | 'RE' | '?';
+  hiatusWeeks?: number | null;
+  weeksOut?: number;
   peak: number;
   weeks: number;
   weeksAtOne?: number;
   totalPlays: number;
-  run: Array<{ week: string; rank: number | null | undefined }>;
+  run: ChartRunStep[];
 }
 
 export interface ChartWeek extends Week {
@@ -117,6 +126,7 @@ export const defaults: Settings = {
   apiKey: '',
   deduplicate: false,
   reducedMotion: false,
+  avatar: 'lastfm',
   aliases: [],
 };
 

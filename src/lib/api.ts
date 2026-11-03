@@ -56,30 +56,48 @@ export async function getProfile(settings: Pick<Settings, 'user' | 'apiKey'>, si
   return { name: u.name, realname: u.realname, image: safeImage(u.image), playcount: Number(u.playcount) || 0, registered: Number(u.registered?.unixtime) || 0, url: `https://www.last.fm/user/${encodeURIComponent(u.name)}` };
 }
 export async function fetchWeek(settings: Settings, week: Week, signal: AbortSignal, onPage: () => void, now = Date.now()) {
-  const cutoff = Math.min(week.end, Math.floor(now / 1000));
-  const params = { user: settings.user.trim(), from: week.start - 1, to: cutoff, limit: 200 };
-  const first = await api<RecentResponse>('user.getRecentTracks', { ...params, page: 1 }, settings.apiKey, signal);
-  const attrs = first.recenttracks?.['@attr'];
-  if (!attrs || attrs.user?.toLowerCase() !== settings.user.trim().toLowerCase()) throw new ApiError('O Last.fm retornou um perfil diferente. Nada foi salvo.', 6);
-  const pages = Number(attrs.totalPages);
-  const total = Number(attrs.total);
-  if (!Number.isInteger(pages) || pages < 0 || pages > 10000 || !Number.isInteger(total) || total < 0) throw new ApiError('Paginação inválida do Last.fm.', 6);
-  let rawCount = 0;
-  const scrobbles: Scrobble[] = [];
-  const collect = (data: RecentResponse) => {
-    const a = data.recenttracks?.['@attr'];
-    if (a?.user?.toLowerCase() !== settings.user.trim().toLowerCase() || Number(a.total) !== total || Number(a.totalPages) !== pages) throw new ApiError('O histórico mudou durante a consulta. Repita a sincronização desta semana.', 16);
-    const raw = data.recenttracks.track ?? [];
-    for (const t of Array.isArray(raw) ? raw : [raw]) {
-      if (t['@attr']?.nowplaying !== 'true') rawCount++;
-      const parsed = parseTrack(t);
-      if (parsed && parsed.timestamp >= week.start && parsed.timestamp < cutoff) scrobbles.push(parsed);
+  for (let consistencyAttempt = 0; consistencyAttempt < 3; consistencyAttempt++) {
+    const cutoff = Math.min(week.end, Math.floor(now / 1000));
+    const params = { user: settings.user.trim(), from: week.start - 1, to: cutoff, limit: 200 };
+    const first = await api<RecentResponse>('user.getRecentTracks', { ...params, page: 1 }, settings.apiKey, signal);
+    const attrs = first.recenttracks?.['@attr'];
+    if (!attrs || attrs.user?.toLowerCase() !== settings.user.trim().toLowerCase()) throw new ApiError('O Last.fm retornou um perfil diferente. Nada foi salvo.', 6);
+    const pages = Number(attrs.totalPages);
+    const total = Number(attrs.total);
+    if (!Number.isInteger(pages) || pages < 0 || pages > 10000 || !Number.isInteger(total) || total < 0) throw new ApiError('Paginação inválida do Last.fm.', 6);
+    let rawCount = 0;
+    const scrobbles: Scrobble[] = [];
+    let inconsistent = false;
+    const collect = (data: RecentResponse) => {
+      const a = data.recenttracks?.['@attr'];
+      if (a?.user?.toLowerCase() !== settings.user.trim().toLowerCase() || Number(a.total) !== total || Number(a.totalPages) !== pages) {
+        inconsistent = true;
+        return;
+      }
+      const raw = data.recenttracks.track ?? [];
+      for (const t of Array.isArray(raw) ? raw : [raw]) {
+        if (t['@attr']?.nowplaying !== 'true') rawCount++;
+        const parsed = parseTrack(t);
+        if (parsed && parsed.timestamp >= week.start && parsed.timestamp < cutoff) scrobbles.push(parsed);
+      }
+      onPage();
+    };
+    collect(first);
+    for (let page = 2; page <= pages && !inconsistent; page++) {
+      collect(await api<RecentResponse>('user.getRecentTracks', { ...params, page }, settings.apiKey, signal));
     }
-    onPage();
-  };
-  collect(first);
-  for (let page = 2; page <= pages; page++) collect(await api<RecentResponse>('user.getRecentTracks', { ...params, page }, settings.apiKey, signal));
-  if (rawCount !== total) throw new ApiError('O Last.fm retornou uma semana incompleta. Tente sincronizar novamente.', 16);
-  const unique = new Set(scrobbles.map(scrobbleKey));
-  return { scrobbles, cutoff, duplicates: scrobbles.length - unique.size };
+    if (inconsistent) {
+      if (consistencyAttempt < 2) {
+        await delay(350 * (consistencyAttempt + 1), signal);
+        continue;
+      }
+      throw new ApiError('O histórico mudou durante a consulta. Repita a sincronização desta semana.', 16);
+    }
+    if (rawCount !== total) {
+      throw new ApiError('O Last.fm retornou uma semana incompleta. Tente sincronizar novamente.', 16);
+    }
+    const unique = new Set(scrobbles.map(scrobbleKey));
+    return { scrobbles, cutoff, duplicates: scrobbles.length - unique.size };
+  }
+  throw new ApiError('O Last.fm retornou uma semana incompleta. Tente sincronizar novamente.', 16);
 }

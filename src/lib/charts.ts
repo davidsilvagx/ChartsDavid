@@ -42,9 +42,20 @@ export function itemOf(raw: Scrobble, kind: Kind, aliases?: AliasRule[]): Omit<I
   return { id, name, artist: s.artist, album: s.album, image: s.image };
 }
 
+interface InternalHistory {
+  peak: number;
+  weeks: number;
+  weeksAtOne: number;
+  weeksOut: number;
+  currentOut: number;
+  hasMissingGapSinceLast: boolean;
+  totalPlays: number;
+  run: ChartEntry['run'];
+}
+
 export function buildCharts(weeks: Week[], cached: CachedWeek[], kind: Kind, deduplicate = false, aliases?: AliasRule[]): ChartWeek[] {
   const data = new Map(cached.map(w => [w.week.id, w]));
-  const history = new Map<string, { peak: number; weeks: number; weeksAtOne: number; totalPlays: number; run: ChartEntry['run'] }>();
+  const history = new Map<string, InternalHistory>();
   let previous = new Map<string, number>();
   let previousKnown = false;
   let complete = true;
@@ -54,7 +65,10 @@ export function buildCharts(weeks: Week[], cached: CachedWeek[], kind: Kind, ded
       complete = false;
       previousKnown = false;
       previous = new Map();
-      for (const h of history.values()) h.run.push({ week: week.id, rank: undefined });
+      for (const h of history.values()) {
+        h.run.push({ week: week.id, rank: undefined, plays: undefined });
+        h.hasMissingGapSinceLast = true;
+      }
       return { ...week, status: 'missing', entries: [], plays: 0, unique: 0, provisional: true };
     }
     const counts = new Map<string, Item>();
@@ -76,20 +90,46 @@ export function buildCharts(weeks: Week[], cached: CachedWeek[], kind: Kind, ded
         counts.set(item.id, { ...item, plays: 1 });
       }
     }
+    // Strict safeguard: only items with >= 1 verified play in [week.start, week.end) can ever enter the chart
     const sorted = [...counts.values()]
+      .filter(item => item.plays >= 1)
       .sort((a, b) => b.plays - a.plays || (previous.get(a.id) ?? Infinity) - (previous.get(b.id) ?? Infinity) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
       .slice(0, 100);
     const ranked = new Map(sorted.map((item, i) => [item.id, i + 1]));
+    const preEntryState = new Map<string, { outStreak: number; hadMissing: boolean }>();
+
     for (const [id, h] of history) {
-      h.run.push({ week: week.id, rank: ranked.get(id) ?? null });
-      h.totalPlays += counts.get(id)?.plays ?? 0;
+      const rankInWeek = ranked.get(id) ?? null;
+      const weekPlays = counts.get(id)?.plays ?? 0;
+      preEntryState.set(id, { outStreak: h.currentOut, hadMissing: h.hasMissingGapSinceLast });
+      h.run.push({ week: week.id, rank: rankInWeek, plays: weekPlays });
+      h.totalPlays += weekPlays;
+      if (rankInWeek === null) {
+        h.weeksOut++;
+        h.currentOut++;
+      } else {
+        h.currentOut = 0;
+        h.hasMissingGapSinceLast = false;
+      }
     }
+
     const entries = sorted.map((item, i): ChartEntry => {
       const rank = i + 1;
       const prior = previous.get(item.id);
       const old = history.get(item.id);
+      const pre = preEntryState.get(item.id);
       const change = prior ? prior - rank : !previousKnown && week.number !== 1 ? '?' : old ? 'RE' : complete ? 'NEW' : '?';
-      const h = old ?? { peak: rank, weeks: 0, weeksAtOne: 0, totalPlays: item.plays, run: [{ week: week.id, rank }] };
+      const hiatusWeeks = change === 'RE' && pre && !pre.hadMissing && pre.outStreak > 0 ? pre.outStreak : null;
+      const h: InternalHistory = old ?? {
+        peak: rank,
+        weeks: 0,
+        weeksAtOne: 0,
+        weeksOut: 0,
+        currentOut: 0,
+        hasMissingGapSinceLast: false,
+        totalPlays: item.plays,
+        run: [{ week: week.id, rank, plays: item.plays }],
+      };
       h.peak = Math.min(h.peak, rank);
       h.weeks++;
       if (rank === 1) h.weeksAtOne++;
@@ -99,6 +139,8 @@ export function buildCharts(weeks: Week[], cached: CachedWeek[], kind: Kind, ded
         rank,
         previous: prior ?? null,
         change,
+        hiatusWeeks,
+        weeksOut: h.weeksOut,
         peak: h.peak,
         weeks: h.weeks,
         weeksAtOne: h.weeksAtOne,
@@ -110,6 +152,100 @@ export function buildCharts(weeks: Week[], cached: CachedWeek[], kind: Kind, ded
     previousKnown = true;
     return { ...week, status: 'loaded', entries, plays, unique: counts.size, provisional: !complete };
   });
+}
+
+export interface ItemAuditHistory {
+  charted: boolean;
+  peak: number | null;
+  weeks: number;
+  weeksAtOne: number;
+  totalPlays: number;
+  totalWeeksOut: number;
+  currentOutStreak: number;
+  longestOutStreak: number;
+  zeroPlayWeeks: number;
+  missingWeeksSinceDebut: number;
+  run: Array<{ week: string; label: string; year: number; number: number; rank: number | null | undefined; plays: number | undefined }>;
+}
+
+export function getItemAuditHistory(charts: ChartWeek[], itemId: string, fallbackPlays = 0): ItemAuditHistory {
+  const firstIdx = charts.findIndex(w => w.status === 'loaded' && w.entries.some(e => e.id === itemId));
+  if (firstIdx < 0) {
+    return {
+      charted: false,
+      peak: null,
+      weeks: 0,
+      weeksAtOne: 0,
+      totalPlays: fallbackPlays,
+      totalWeeksOut: 0,
+      currentOutStreak: 0,
+      longestOutStreak: 0,
+      zeroPlayWeeks: 0,
+      missingWeeksSinceDebut: 0,
+      run: [],
+    };
+  }
+  // Find latest loaded week at or after debut so post-chart OUT streaks are never hidden
+  let lastLoadedIdx = firstIdx;
+  for (let i = charts.length - 1; i >= firstIdx; i--) {
+    if (charts[i].status === 'loaded') {
+      lastLoadedIdx = i;
+      break;
+    }
+  }
+
+  let peak = Infinity;
+  let weeks = 0;
+  let weeksAtOne = 0;
+  let totalWeeksOut = 0;
+  let currentOutStreak = 0;
+  let longestOutStreak = 0;
+  let zeroPlayWeeks = 0;
+  let missingWeeksSinceDebut = 0;
+  let latestEntryPlays = fallbackPlays;
+  const run: ItemAuditHistory['run'] = [];
+
+  for (let i = firstIdx; i <= lastLoadedIdx; i++) {
+    const w = charts[i];
+    if (w.status === 'missing') {
+      missingWeeksSinceDebut++;
+      run.push({ week: w.id, label: w.label, year: w.year, number: w.number, rank: undefined, plays: undefined });
+      continue;
+    }
+    const entry = w.entries.find(e => e.id === itemId);
+    if (entry) {
+      peak = Math.min(peak, entry.rank);
+      weeks++;
+      if (entry.rank === 1) weeksAtOne++;
+      currentOutStreak = 0;
+      latestEntryPlays = Math.max(latestEntryPlays, entry.totalPlays);
+      run.push({ week: w.id, label: w.label, year: w.year, number: w.number, rank: entry.rank, plays: entry.plays });
+    } else {
+      totalWeeksOut++;
+      currentOutStreak++;
+      longestOutStreak = Math.max(longestOutStreak, currentOutStreak);
+      // Check if an entry later recorded exact week plays in its run snapshot
+      const laterWithEntry = charts.slice(i + 1, lastLoadedIdx + 1).find(lw => lw.entries.some(le => le.id === itemId));
+      const snap = laterWithEntry?.entries.find(le => le.id === itemId)?.run.find(r => r.week === w.id);
+      const p = snap?.plays ?? 0;
+      if (p === 0) zeroPlayWeeks++;
+      run.push({ week: w.id, label: w.label, year: w.year, number: w.number, rank: null, plays: p });
+    }
+  }
+
+  return {
+    charted: true,
+    peak: Number.isFinite(peak) ? peak : null,
+    weeks,
+    weeksAtOne,
+    totalPlays: Math.max(latestEntryPlays, fallbackPlays),
+    totalWeeksOut,
+    currentOutStreak,
+    longestOutStreak,
+    zeroPlayWeeks,
+    missingWeeksSinceDebut,
+    run,
+  };
 }
 
 export function getLibrary(weeks: CachedWeek[], kind: Kind, deduplicate = false, aliases?: AliasRule[]): Item[] {

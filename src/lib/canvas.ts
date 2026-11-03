@@ -49,6 +49,7 @@ interface IndexedCharts {
   rankMaps: Array<Map<string, number>>;
   playMaps: Array<Map<string, number>>;
   cumPlayMaps: Array<Map<string, number>>;
+  hiatusMaps: Array<Map<string, number>>;
 }
 
 const chartIndexCache = new WeakMap<ChartWeek[], IndexedCharts>();
@@ -60,23 +61,27 @@ function getChartIndex(charts: ChartWeek[]): IndexedCharts {
   const rankMaps: Array<Map<string, number>> = [];
   const playMaps: Array<Map<string, number>> = [];
   const cumPlayMaps: Array<Map<string, number>> = [];
+  const hiatusMaps: Array<Map<string, number>> = [];
 
   for (const w of charts) {
     const rMap = new Map<string, number>();
     const pMap = new Map<string, number>();
+    const hMap = new Map<string, number>();
     if (w.status === 'loaded') {
       for (const e of w.entries) {
         rMap.set(e.id, e.rank);
         pMap.set(e.id, e.plays);
+        if (e.hiatusWeeks && e.hiatusWeeks > 0) hMap.set(e.id, e.hiatusWeeks);
         running.set(e.id, (running.get(e.id) ?? 0) + e.plays);
       }
     }
     rankMaps.push(rMap);
     playMaps.push(pMap);
     cumPlayMaps.push(new Map(running));
+    hiatusMaps.push(hMap);
   }
 
-  const built = { rankMaps, playMaps, cumPlayMaps };
+  const built = { rankMaps, playMaps, cumPlayMaps, hiatusMaps };
   chartIndexCache.set(charts, built);
   return built;
 }
@@ -233,9 +238,9 @@ export function drawChart(ctx: CanvasRenderingContext2D, width: number, height: 
   const x = (i: number) => left + (i - origin) * spacing;
   const endpoint = Math.min(edge, x(position));
   const first = Math.max(0, Math.floor(origin));
-  const { rankMaps } = getChartIndex(charts);
+  const { rankMaps, hiatusMaps } = getChartIndex(charts);
 
-  const cardRows: Array<{ item: Item; color: string; rank: number; cy: number; prev?: number; iy: number }> = [];
+  const cardRows: Array<{ item: Item; color: string; rank: number; cy: number; prev?: number; iy: number; hiatus?: number }> = [];
   const enableGlow = !reduced && items.length <= 18;
 
   items.forEach((item, index) => {
@@ -280,14 +285,49 @@ export function drawChart(ctx: CanvasRenderingContext2D, width: number, height: 
           // Discrete rank switch without intermediate roulette numbers
           const shownRank = fraction >= 0.85 ? next : rank;
           const prevRank = fraction >= 0.85 ? rank : rankMaps[current - 1]?.get(item.id);
-          cardRows.push({ item, color, rank: shownRank, cy: ny, iy: ny, prev: prevRank });
+          const hiatus = fraction >= 0.85 ? hiatusMaps[current + 1]?.get(item.id) : hiatusMaps[current]?.get(item.id);
+          cardRows.push({ item, color, rank: shownRank, cy: ny, iy: ny, prev: prevRank, hiatus });
         }
       } else if (i === current) {
-        cardRows.push({ item, color, rank, cy: py, iy: py, prev: rankMaps[current - 1]?.get(item.id) });
+        const hiatus = hiatusMaps[current]?.get(item.id);
+        cardRows.push({ item, color, rank, cy: py, iy: py, prev: rankMaps[current - 1]?.get(item.id), hiatus });
       }
     }
     ctx.restore();
   });
+
+  // Honest visual indicator when a week is empty on Last.fm, unsynced, or all selected items had 0 plays / OUT
+  const curWeek = charts[current];
+  if (curWeek && cardRows.length === 0) {
+    const statusLabel =
+      curWeek.status === 'missing'
+        ? compact
+          ? 'Semana não sincronizada (sem posições fictícias)'
+          : 'SEMANA NÃO SINCRONIZADA · NENHUMA POSIÇÃO FICTÍCIA GERADA'
+        : curWeek.plays === 0
+          ? compact
+            ? 'Last.fm vazio nesta semana (0 plays)'
+            : 'SEMANA VAZIA NO LAST.FM · 0 REPRODUÇÕES REGISTRADAS'
+          : compact
+            ? 'Competidores fora do chart nesta semana (OUT)'
+            : `COMPETIDORES FORA DO TOP ${s.top} NESTA SEMANA (0 PLAYS / OUT)`;
+    ctx.save();
+    ctx.font = `600 ${compact ? 9.5 : 11}px ${UI_FONT}`;
+    const msgW = Math.min(width - padX * 2, ctx.measureText(statusLabel).width + 26);
+    const msgX = left + Math.max(0, (width - left - padX - msgW) / 2);
+    const msgY = top + chartHeight / 2 - 15;
+    roundRectPath(ctx, msgX, msgY, msgW, 30, 15);
+    ctx.fillStyle = dark ? 'rgba(15, 23, 42, 0.82)' : 'rgba(255, 255, 255, 0.88)';
+    ctx.fill();
+    ctx.strokeStyle = dark ? 'rgba(56, 189, 248, 0.35)' : 'rgba(14, 165, 233, 0.35)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.fillStyle = dark ? '#bae6fd' : '#0369a1';
+    ctx.textAlign = 'center';
+    ctx.fillText(truncateCanvasText(ctx, statusLabel, msgW - 16), msgX + msgW / 2, msgY + 19);
+    ctx.textAlign = 'left';
+    ctx.restore();
+  }
 
   const rowHeight = compact ? 32 : Math.max(34, s.fontSize * 2.55);
   const maxCards = Math.max(1, Math.floor(chartHeight / rowHeight));
@@ -313,7 +353,7 @@ export function drawChart(ctx: CanvasRenderingContext2D, width: number, height: 
   }
 
   for (const row of cards) {
-    const { item, color, rank, iy, cy, prev } = row;
+    const { item, color, rank, iy, cy, prev, hiatus } = row;
     const radius = Math.min(s.coverSize / 2, compact ? 11.5 : 18);
     const cardX = Math.min(width - right + (compact ? 10 : 16), endpoint + (compact ? 10 : 16));
 
@@ -397,10 +437,22 @@ export function drawChart(ctx: CanvasRenderingContext2D, width: number, height: 
       ctx.drawImage(image, cardX, cy - radius, radius * 2, radius * 2);
     } else {
       ctx.fillStyle = '#090d14';
-      ctx.font = `700 ${Math.max(9, radius * 0.9)}px ${UI_FONT}`;
-      ctx.textAlign = 'center';
-      ctx.fillText(item.name.slice(0, 1).toUpperCase(), cardX + radius, cy + radius * 0.34);
-      ctx.textAlign = 'left';
+      ctx.beginPath();
+      ctx.arc(cardX + radius, cy, radius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,0.16)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(cardX + radius, cy, radius * 0.68, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(cardX + radius, cy, radius * 0.38, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#090d14';
+      ctx.beginPath();
+      ctx.arc(cardX + radius, cy, Math.max(1.4, radius * 0.12), 0, Math.PI * 2);
+      ctx.fill();
     }
     ctx.restore();
 
@@ -419,9 +471,10 @@ export function drawChart(ctx: CanvasRenderingContext2D, width: number, height: 
     const rawTitle = `#${rank} ${item.name}`;
     ctx.fillText(truncateCanvasText(ctx, rawTitle, textLimit), tx, cy - (compact ? 1 : 1.5));
 
-    ctx.fillStyle = muted;
-    ctx.font = `500 ${compact ? 8.5 : Math.max(9.5, titleSize - 2)}px ${UI_FONT}`;
-    ctx.fillText(truncateCanvasText(ctx, item.artist, textLimit), tx, cy + (compact ? 8.5 : 10.5));
+    ctx.fillStyle = hiatus ? '#38bdf8' : muted;
+    ctx.font = `${hiatus ? 600 : 500} ${compact ? 8.5 : Math.max(9.5, titleSize - 2)}px ${UI_FONT}`;
+    const subText = hiatus ? `${item.artist} · RE (${hiatus}s fora)` : item.artist;
+    ctx.fillText(truncateCanvasText(ctx, subText, textLimit), tx, cy + (compact ? 8.5 : 10.5));
 
     if (rank === 1 && s.effects) {
       drawCrown(ctx, cardX + radius, cy - radius - 3, compact ? 10 : 13);
@@ -524,6 +577,22 @@ function drawBarRace(
     ctx.fillStyle = dark ? 'rgba(255,255,255,0.16)' : 'rgba(15,23,42,0.18)';
     ctx.font = `700 ${compact ? 11 : 13}px ${UI_FONT}`;
     ctx.fillText(s.barMetric === 'weekly' ? 'PLAYS NA SEMANA' : 'PLAYS ACUMULADOS', width - padX, bottom);
+    ctx.restore();
+  }
+
+  if (charts[current] && active.length === 0) {
+    const emptyMsg =
+      charts[current].status === 'missing'
+        ? 'Semana não sincronizada — nenhuma posição inventada'
+        : charts[current].plays === 0
+          ? 'Last.fm sem scrobbles nesta semana (0 plays)'
+          : 'Competidores sem reproduções registradas até esta semana (0 plays)';
+    ctx.save();
+    ctx.font = `600 ${compact ? 10 : 11.5}px ${UI_FONT}`;
+    ctx.fillStyle = dark ? '#bae6fd' : '#0369a1';
+    ctx.textAlign = 'center';
+    ctx.fillText(truncateCanvasText(ctx, emptyMsg, width - padX * 2), width / 2, top + areaH / 2);
+    ctx.textAlign = 'left';
     ctx.restore();
   }
 
@@ -738,7 +807,7 @@ export async function renderWeeklyShareCard(week: ChartWeek, kind: Kind, usernam
 
     // Variation badge
     const ch = entry.change;
-    const chLabel = ch === 'NEW' ? 'NEW' : ch === 'RE' ? 'RE' : ch === '?' || ch === 0 ? '—' : ch > 0 ? `+${ch}` : `${ch}`;
+    const chLabel = ch === 'NEW' ? 'NEW' : ch === 'RE' ? (entry.hiatusWeeks ? `RE·${entry.hiatusWeeks}s` : 'RE') : ch === '?' || ch === 0 ? '—' : ch > 0 ? `+${ch}` : `${ch}`;
     ctx.fillStyle = ch === 'NEW' || (typeof ch === 'number' && ch > 0) ? '#22dc6e' : ch === 'RE' ? '#38bdf8' : typeof ch === 'number' && ch < 0 ? '#fb7185' : '#64748b';
     ctx.font = `700 18px ${UI_FONT}`;
     ctx.textAlign = 'center';

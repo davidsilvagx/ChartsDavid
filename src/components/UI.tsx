@@ -70,10 +70,17 @@ export function Cover({
   );
 }
 
-export function Change({ value }: { value: ChartEntry['change'] }) {
-  if (value === 'NEW') return <span className="change new">NEW</span>;
-  if (value === 'RE') return <span className="change re">RE</span>;
-  if (value === '?') return <span className="change neutral" title="Histórico anterior incompleto">—</span>;
+export function Change({ value, hiatusWeeks }: { value: ChartEntry['change']; hiatusWeeks?: number | null }) {
+  if (value === 'NEW') return <span className="change new" title="Estreia no Top 100" aria-label="Estreia no Top 100">NEW</span>;
+  if (value === 'RE') {
+    const label = hiatusWeeks && hiatusWeeks > 0 ? `Retorno após ${hiatusWeeks} ${hiatusWeeks === 1 ? 'semana' : 'semanas'} fora do chart` : 'Retorno ao Top 100';
+    return (
+      <span className="change re" title={label} aria-label={label}>
+        RE{hiatusWeeks && hiatusWeeks > 0 ? <small className="re-gap">·{hiatusWeeks}s</small> : null}
+      </span>
+    );
+  }
+  if (value === '?') return <span className="change neutral" title="Semana anterior não sincronizada — variação não inventada" aria-label="Semana anterior não sincronizada">—</span>;
   return (
     <span
       className={`change ${value > 0 ? 'up' : value < 0 ? 'down' : 'neutral'}`}
