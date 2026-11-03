@@ -57,8 +57,8 @@ export function SyncProgressCard({
   onCancel?: () => void;
   compact?: boolean;
 }) {
-  const indeterminate = progress.phase === 'connecting' || progress.total <= 0 || progress.completed === 0;
-  const pct = progress.total > 0 ? Math.min(100, Math.round((progress.completed / progress.total) * 100)) : 0;
+  const indeterminate = progress.phase === 'connecting';
+  const pct = progress.phase === 'done' ? 100 : progress.total > 0 ? Math.min(99, Math.floor((progress.completed / progress.total) * 100)) : 0;
   const scopeTitle =
     progress.force
       ? 'Revalidação completa'
@@ -79,25 +79,28 @@ export function SyncProgressCard({
             <span className="sync-scope-pill">{scopeTitle}</span>
             <strong>{progress.message}</strong>
           </div>
-          <span className="sync-pct-badge">{indeterminate && pct === 0 ? 'Conectando…' : `${pct}%`}</span>
+          <span className="sync-pct-badge">{indeterminate ? 'Conectando…' : `${pct}%`}</span>
         </div>
         <div
           className={`musical-progress-track ${indeterminate ? 'is-indeterminate' : ''}`}
           role="progressbar"
           aria-valuemin={0}
           aria-valuemax={100}
-          aria-valuenow={pct}
+          aria-valuenow={indeterminate ? undefined : pct}
+          aria-label="Progresso do download atual"
         >
           <span
             className="musical-progress-fill"
-            style={indeterminate ? undefined : { width: `${Math.max(4, pct)}%` }}
+            style={indeterminate ? undefined : { width: `${pct}%` }}
           />
         </div>
-        <small>
-          {progress.total > 0
-            ? `${progress.completed} de ${progress.total} semanas concluídas neste lote · ${progress.pages} ${progress.pages === 1 ? 'página recebida' : 'páginas recebidas'}`
-            : 'Validando usuário e preparando janelas de sexta a quinta…'}
-        </small>
+        {progress.total > 0 ? (
+          <div className="sync-stats">
+            <span><strong>{number(progress.completed)} / {number(progress.total)}</strong> semanas salvas neste download</span>
+            <span><strong>{number(progress.pages)}</strong> páginas recebidas</span>
+          </div>
+        ) : <small>Validando usuário e preparando o download…</small>}
+        {!indeterminate && <small>Mantenha o app aberto. Os charts serão recalculados ao terminar ou pausar.</small>}
       </div>
       {onCancel && (
         <button type="button" className="button small" onClick={onCancel}>
