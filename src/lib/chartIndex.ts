@@ -17,9 +17,13 @@ export function getChartIndex(charts:ChartWeek[],items:Item[],cumulative=false):
     const ranks=new Map<string,number>(),plays=new Map<string,number>(),hiatus=new Map<string,number>();
     if(week.status==='loaded')for(const entry of week.entries){
       if(!ids.has(entry.id))continue;
-      ranks.set(entry.id,entry.rank);plays.set(entry.id,entry.plays);
+      ranks.set(entry.id,entry.rank);
       if(entry.hiatusWeeks&&entry.hiatusWeeks>0)hiatus.set(entry.id,entry.hiatusWeeks);
-      if(cumulative)running.set(entry.id,(running.get(entry.id)??0)+entry.plays);
+    }
+    if(week.status==='loaded')for(const [id,count] of week.playCounts ?? week.entries.map(e=>[e.id,e.plays] as const)){
+      if(!ids.has(id))continue;
+      plays.set(id,count);
+      if(cumulative)running.set(id,(running.get(id)??0)+count);
     }
     index.rankMaps.push(ranks);index.playMaps.push(plays);index.hiatusMaps.push(hiatus);
     if(cumulative)index.cumPlayMaps.push(new Map(running));
