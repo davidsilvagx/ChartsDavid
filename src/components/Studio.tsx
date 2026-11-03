@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   BarChart2,
   Check,
@@ -29,6 +29,7 @@ import { cacheImageUrl, drawChart, palettes, prepareImages } from '../lib/canvas
 import { resolveCatalogMedia } from '../lib/catalog';
 import { download } from '../lib/export';
 import { ChartCanvas, type ChartCanvasHandle } from './ChartCanvas';
+import { fitStudioCanvas } from '../lib/chartIndex';
 import { Cover, Empty, Modal, MusicLoader, number } from './UI';
 
 export type StudioViewMode = 'normal' | 'widescreen';
@@ -89,6 +90,8 @@ export function Studio({
 
   const abortRecord = useRef<AbortController | null>(null);
   const previewPanelRef = useRef<HTMLDivElement>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
+  const [stageSize,setStageSize] = useState({width:0,height:0});
   const canvas = useRef<HTMLCanvasElement>(null);
   const canvasHandle = useRef<ChartCanvasHandle>(null);
   const sliderRef = useRef<HTMLInputElement>(null);
@@ -120,8 +123,26 @@ export function Studio({
       setIsPortraitViewport(window.innerWidth < window.innerHeight && window.innerWidth <= 860);
     };
     window.addEventListener('resize', checkViewport);
-    return () => window.removeEventListener('resize', checkViewport);
+    window.visualViewport?.addEventListener('resize',checkViewport);
+    return () => {window.removeEventListener('resize', checkViewport);window.visualViewport?.removeEventListener('resize',checkViewport);};
   }, []);
+
+  useLayoutEffect(()=>{
+    const el=stageRef.current;
+    if(!expanded||!el)return;
+    const observer=new ResizeObserver(entries=>{
+      const r=entries[0]?.contentRect;
+      if(r)setStageSize(previous=>previous.width===r.width&&previous.height===r.height?previous:{width:r.width,height:r.height});
+    });
+    observer.observe(el);
+    return()=>observer.disconnect();
+  },[expanded]);
+
+  useEffect(()=>{
+    const pause=()=>{if(document.hidden)setPlaying(false);};
+    document.addEventListener('visibilitychange',pause);
+    return()=>document.removeEventListener('visibilitychange',pause);
+  },[]);
 
   // Sync Escape key and native Fullscreen exits with Cinema Expanded state
   useEffect(() => {
@@ -208,8 +229,14 @@ export function Studio({
     let frame = 0;
     let last = 0;
     let lastWeekShown = Math.floor(positionRef.current);
+    let lastPaint = 0;
+    const mobile = window.matchMedia('(pointer: coarse)').matches || window.innerWidth <= 860;
+    const frameInterval = 1000 / (settings.previewFps ?? (mobile ? 30 : 60));
 
     const loop = (now: number) => {
+      if(document.hidden){setPlaying(false);return;}
+      if(now-lastPaint < frameInterval-0.5){frame=requestAnimationFrame(loop);return;}
+      lastPaint=now;
       if (!last) last = now;
       const delta = (Math.min(now - last, 80) / 1000) * settings.speed;
       last = now;
@@ -239,7 +266,7 @@ export function Studio({
       cancelAnimationFrame(frame);
       setPosition(positionRef.current);
     };
-  }, [playing, timeline.length, settings.speed]);
+  }, [playing, timeline.length, settings.speed, settings.previewFps]);
 
   useEffect(() => {
     if (sliderRef.current) sliderRef.current.value = String(position);
@@ -401,15 +428,16 @@ export function Studio({
 
       const start = performance.now();
       const duration = Math.max(2, (timeline.length - 1) / settings.speed + 1);
+      let lastPreview=0,lastProgress=0;
       const tick = (now: number) => {
         if (controller.signal.aborted) return;
         const elapsed = (now - start) / 1000;
         const p = Math.min(timeline.length - 1, elapsed * settings.speed);
         drawChart(ctx, w, h, { charts: timeline, items: selectedItems, settings, position: p, dark: useDarkCanvas, reduced });
         positionRef.current = p;
-        canvasHandle.current?.drawAt(p);
+        if(now-lastPreview>=100){canvasHandle.current?.drawAt(p);lastPreview=now;}
         if (sliderRef.current) sliderRef.current.value = String(p);
-        setRecordProgress(Math.min(100, (elapsed / duration) * 100));
+        if(now-lastProgress>=250||elapsed>=duration){setRecordProgress(Math.min(100, (elapsed / duration) * 100));lastProgress=now;}
         if (elapsed >= duration) stop();
         else frame = requestAnimationFrame(tick);
       };
@@ -440,9 +468,11 @@ export function Studio({
   const paletteColors = palettes[settings.palette] ?? palettes.neon;
   const useDarkCanvas = settings.canvasTheme ? settings.canvasTheme === 'dark' : dark;
   const rotateMobileWidescreen = expanded && viewMode === 'widescreen' && isPortraitViewport;
+  const aspect = viewMode === 'widescreen' || settings.format === 'landscape' ? 16/9 : settings.format === 'portrait' ? 9/16 : 1;
+  const fitted = fitStudioCanvas(stageSize.width,stageSize.height,aspect);
 
   const canvasHeight: number | string = expanded
-    ? '100%'
+    ? Math.max(1,fitted.height)
     : viewMode === 'widescreen'
       ? 'clamp(260px, 50vw, 580px)'
       : settings.format === 'portrait'
@@ -461,7 +491,7 @@ export function Studio({
           <div className="panel-heading studio-header-bar">
             <div>
               <span className="eyebrow">
-                {expanded ? 'MODO CINEMA · TELA AMPLIADA 60 FPS' : 'ESTÚDIO DE ANIMAÇÃO · 60 FPS'}
+                {expanded ? 'MODO CINEMA' : 'ESTÚDIO DE ANIMAÇÃO'} · PRÉVIA {settings.previewFps ?? ((window.matchMedia('(pointer: coarse)').matches || window.innerWidth<=860)?30:60)} FPS · EXPORTAÇÃO 60 FPS
               </span>
               <h2>{settings.mode === 'bars' ? 'Corrida de Reproduções' : 'Trajetória no Ranking'}</h2>
             </div>
@@ -569,7 +599,7 @@ export function Studio({
             </div>
           )}
 
-          <div className={`canvas-stage ${viewMode === 'widescreen' ? 'widescreen-stage' : ''}`}>
+          <div ref={stageRef} className={`canvas-stage ${viewMode === 'widescreen' ? 'widescreen-stage' : ''}`}>
             <ChartCanvas
               canvasRef={canvas}
               handleRef={canvasHandle}
@@ -583,6 +613,7 @@ export function Studio({
                 reduced,
               }}
               height={canvasHeight}
+              width={expanded ? Math.max(1,fitted.width) : undefined}
             />
             {!expanded && (
               <button
@@ -630,7 +661,7 @@ export function Studio({
             <input
               ref={sliderRef}
               name="studio-timeline-slider"
-              aria-label="Semana da animação"
+              aria-label="Período da animação"
               type="range"
               min="0"
               max={Math.max(0, timeline.length - 1)}
@@ -862,7 +893,7 @@ export function Studio({
                   Métrica das barras
                   <select value={settings.barMetric} onChange={e => update('barMetric', e.target.value as StudioSettings['barMetric'])}>
                     <option value="cumulative">Plays acumulados (Estilo YouTube)</option>
-                    <option value="weekly">Plays em cada semana</option>
+                    <option value="weekly">Plays em cada período</option>
                   </select>
                 </label>
                 <label>
@@ -901,6 +932,7 @@ export function Studio({
                 <option value="light">Cristal Editorial (Claro)</option>
               </select>
             </label>
+            <label>Fluidez da prévia<select aria-label="Fluidez da prévia" value={settings.previewFps ?? 'auto'} onChange={e=>update('previewFps',e.target.value==='auto'?undefined:Number(e.target.value) as 30|60)}><option value="auto">Automática · 30 fps no celular</option><option value="30">30 fps · menor consumo</option><option value="60">60 fps · maior fluidez</option></select><small>A exportação de vídeo mantém 60 fps.</small></label>
 
             <label>
               Paleta cromática
@@ -917,7 +949,7 @@ export function Studio({
                 { key: 'speed', label: 'Velocidade', min: 0.25, max: 4, step: 0.25, suffix: '×' },
                 ...(settings.mode === 'lines'
                   ? [
-                      { key: 'spacing', label: 'Distância entre semanas', min: 40, max: 180, step: 10, suffix: ' px' } as const,
+                      { key: 'spacing', label: 'Distância entre períodos', min: 40, max: 180, step: 10, suffix: ' px' } as const,
                       { key: 'lineWidth', label: 'Espessura das linhas', min: 1.5, max: 6, step: 0.5, suffix: ' px' } as const,
                       { key: 'coverSize', label: 'Tamanho das capas', min: 18, max: 48, step: 2, suffix: ' px' } as const,
                       { key: 'fontSize', label: 'Tamanho dos cards', min: 10, max: 18, step: 1, suffix: ' px' } as const,
