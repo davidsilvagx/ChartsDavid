@@ -47,6 +47,9 @@ import {
   X,
 } from 'lucide-react';
 import { useData } from './lib/useData';
+import { HistoryExplorer } from './components/HistoryExplorer';
+import type { PeriodResult } from './components/PeriodExplorer';
+import { summarizePeriod, weeksInPeriod } from './lib/history';
 import {
   type AliasRule,
   type ChartEntry,
@@ -125,6 +128,8 @@ function App() {
   } = data;
 
   const [year, setYear] = useState('all');
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [studioPeriod, setStudioPeriod] = useState<PeriodResult | null>(null);
   const [weekId, setWeekId] = useState('');
   const [top, setTop] = useState(100);
   const [query, setQuery] = useState('');
@@ -145,6 +150,8 @@ function App() {
   const [avatarModal, setAvatarModal] = useState(false);
   const [installHelp, setInstallHelp] = useState(false);
   const [installPrompt, setInstallPrompt] = useState<InstallPrompt | null>(null);
+  const [installing,setInstalling]=useState(false);
+  const [installed,setInstalled]=useState(()=>matchMedia('(display-mode: standalone)').matches || (navigator as Navigator & {standalone?:boolean}).standalone===true);
   const [online, setOnline] = useState(navigator.onLine);
   const [libraryLimit, setLibraryLimit] = useState(60);
   const [systemDark, setSystemDark] = useState(() => matchMedia('(prefers-color-scheme: dark)').matches);
@@ -159,6 +166,7 @@ function App() {
 
   const years = useMemo(() => [...new Set(weeks.map(w => w.year))].reverse(), [weeks]);
   const filtered = useMemo(() => charts.filter(w => year === 'all' || w.year === Number(year)), [charts, year]);
+  const yearSummary = useMemo(() => summarizePeriod(weeksInPeriod(weeks, year), charts), [weeks, year, charts]);
   const selected = filtered.find(w => w.id === weekId) ?? filtered.filter(w => w.status === 'loaded').at(-1) ?? filtered.at(-1);
   const selectedIndex = filtered.findIndex(w => w.id === selected?.id);
   const loaded = useMemo(() => charts.filter(w => w.status === 'loaded'), [charts]);
@@ -219,6 +227,8 @@ function App() {
     return () => m.removeEventListener('change', fn);
   }, []);
 
+  useEffect(() => { setStudioPeriod(null); }, [kind, sourceFilter, settings.user, settings.startDate, settings.timezone, cached]);
+
   useEffect(() => {
     document.documentElement.dataset.theme = dark ? 'dark' : 'light';
     document.documentElement.dataset.motion = reduced ? 'reduced' : 'full';
@@ -242,10 +252,17 @@ function App() {
     window.addEventListener('online', connected);
     window.addEventListener('offline', connected);
     window.addEventListener('beforeinstallprompt', prompt);
+    const installedApp=()=>{setInstalled(true);setInstallPrompt(null);};
+    const visibility=()=>{document.documentElement.dataset.visibility=document.hidden?'hidden':'visible';};
+    visibility();
+    window.addEventListener('appinstalled',installedApp);
+    document.addEventListener('visibilitychange',visibility);
     return () => {
       window.removeEventListener('online', connected);
       window.removeEventListener('offline', connected);
       window.removeEventListener('beforeinstallprompt', prompt);
+      window.removeEventListener('appinstalled',installedApp);
+      document.removeEventListener('visibilitychange',visibility);
     };
   }, []);
 
@@ -383,13 +400,19 @@ function App() {
   const favorite = (id: string) => setFavorites(f => (f.includes(id) ? f.filter(v => v !== id) : [...f, id]));
 
   const install = async () => {
+    if(installing)return;
+    setInstalling(true);
+    try {
     if (installPrompt) {
       await installPrompt.prompt();
-      await installPrompt.userChoice;
+      const choice=await installPrompt.userChoice;
       setInstallPrompt(null);
+      data.setNotice(choice.outcome==='accepted'?'Instalação iniciada pelo navegador.':'Você pode instalar depois pelo botão “Instalar”.');
     } else {
       setInstallHelp(true);
     }
+    } catch {setInstallHelp(true);}
+    finally {setInstalling(false);}
   };
 
   const saveCSV = () => {
@@ -514,6 +537,7 @@ function App() {
               <i />
               <span>{online ? 'Online' : 'Offline'}</span>
             </span>
+            {!installed&&<button type="button" className="button small install-header-button" onClick={()=>void install()} disabled={installing} aria-label="Instalar aplicativo no celular">{installing?<MusicLoader size="sm"/>:<Smartphone size={16}/>}<span>Instalar</span></button>}
             <button
               type="button"
               className={`icon-button theme-toggle ${dark ? 'is-dark' : ''}`}
@@ -540,6 +564,7 @@ function App() {
 
         <main id="main">
           <AmbientBackdrop src={leader?.image} className="page-artwork" />
+          {page==='overview'&&!installed&&<section className="install-banner" aria-label="Instalar LastChart no celular"><Smartphone size={24}/><div><strong>Seu LastChart na tela inicial</strong><small>Instale pelo navegador e abra como aplicativo.</small></div><button type="button" className="button primary" onClick={()=>void install()} disabled={installing}>{installing?<MusicLoader size="sm" tone="ink"/>:<Download size={16}/>}<span>{installing?'Abrindo instalação…':'Instalar no celular'}</span></button></section>}
           {!online && (
             <div className="alert">
               <WifiOff size={18} />
@@ -756,12 +781,21 @@ function App() {
               />
 
               {page !== 'library' && (
+                <section className="history-entry" aria-label="Acessar todo o histórico">
+                  <div><strong>Seu histórico completo</strong><small>{lastfmLoaded} de {weeks.length} semanas Last.fm salvas · {years.at(-1)}–{years[0]}</small></div>
+                  <button type="button" className="button" onClick={() => setHistoryOpen(true)}><CalendarDays size={16}/><span>Explorar dias, meses e anos</span></button>
+                  {lastfmLoaded < weeks.length && <button type="button" className="button primary" disabled={!!progress || !online} onClick={() => void data.sync('all')}>{progress ? <MusicLoader size="sm" tone="ink"/> : <Download size={16}/>}<span>{progress ? 'Baixando histórico…' : 'Baixar histórico completo'}</span></button>}
+                </section>
+              )}
+
+              {page !== 'library' && (
                 <div className="year-strip" role="group" aria-label="Filtrar por ano">
                   <button
                     type="button"
                     className={`year-pill ${year === 'all' ? 'active' : ''}`}
                     onClick={() => {
                       setYear('all');
+                      setStudioPeriod(null);
                       setWeekId('');
                     }}
                   >
@@ -774,6 +808,7 @@ function App() {
                       className={`year-pill ${year === String(y) ? 'active' : ''}`}
                       onClick={() => {
                         setYear(String(y));
+                        setStudioPeriod(null);
                         setWeekId('');
                       }}
                     >
@@ -782,6 +817,8 @@ function App() {
                   ))}
                 </div>
               )}
+
+              {year !== 'all' && page !== 'library' && <div className="history-summary" aria-live="polite"><strong>{year} · {yearSummary.loaded}/{yearSummary.total} semanas baixadas</strong><p>{computing ? 'Atualizando os charts deste ano…' : yearSummary.state==='missing' ? 'Este ano ainda não foi baixado. Isso não significa que não houve músicas ouvidas.' : yearSummary.state==='empty' ? `Nenhuma reprodução encontrada em ${year} para a fonte selecionada, nas semanas até hoje.` : yearSummary.missing ? `Faltam ${yearSummary.missing} semanas para consultar o ano completo.` : `${number(yearSummary.plays)} reproduções no ano, nas semanas disponíveis até hoje.`}</p>{yearSummary.missing > 0 && <button type="button" className="button" disabled={!!progress || !online} onClick={() => void data.sync(Number(year))}>{progress ? <MusicLoader size="sm"/> : <Download size={16}/>}<span>{progress ? 'Baixando…' : `Baixar ${year} completo`}</span></button>}</div>}
 
               {page === 'overview' && (
                 <>
@@ -1214,15 +1251,19 @@ function App() {
               )}
 
               {page === 'studio' && (
+                <>
+                {studioPeriod && <div className="history-summary"><strong>Vídeo com {studioPeriod.charts.length} períodos personalizados</strong><p>{studioPeriod.charts[0]?.label} até {studioPeriod.charts.at(-1)?.label}</p><button type="button" className="text-button" onClick={() => setHistoryOpen(true)}>Alterar datas ou agrupamento</button><button type="button" className="text-button" onClick={() => setStudioPeriod(null)}>Voltar aos charts semanais</button></div>}
                 <Studio
-                  charts={filtered}
-                  library={library}
+                  key={studioPeriod ? `${studioPeriod.unit}-${studioPeriod.charts[0]?.id}-${studioPeriod.charts.at(-1)?.id}` : 'weekly'}
+                  charts={studioPeriod?.charts ?? filtered}
+                  library={studioPeriod?.library ?? library}
                   reduced={reduced}
                   dark={dark}
                   initialSelected={studioSeed}
                   onConsumeInitial={() => setStudioSeed(undefined)}
                   onError={data.setError}
                 />
+                </>
               )}
 
               {page === 'library' && (
@@ -1330,7 +1371,7 @@ function App() {
           <footer className="page-footer">
             <span>
               <AudioLines size={15} />
-              <span>LastChart Studio Pro · Criado por William Santos</span>
+              <span>Feito com ❤️ por William Santos</span>
             </span>
             <span>
               {computing ? (
@@ -1400,6 +1441,8 @@ function App() {
           onClose={() => setPlatformsModal(false)}
         />
       )}
+
+      {historyOpen && <HistoryExplorer weeks={weeks} charts={charts} initialYear={year} selectedId={selected?.id} startDate={settings.startDate} computing={computing} progress={progress} error={error} onCancel={data.cancel} onSync={scope => void data.sync(scope)} onClose={() => setHistoryOpen(false)} onCalendar={() => {setHistoryOpen(false);navigate('settings');}} initialMode={page==='studio'?'period':'archive'} onChoose={week => {setYear(String(week.year));setWeekId(week.id);setHistoryOpen(false);navigate('charts');}} settings={settings} cached={cached} kind={kind} source={sourceFilter} onAnimate={result => {setStudioPeriod(result);setStudioSeed(undefined);setHistoryOpen(false);navigate('studio');}} />}
 
       {avatarModal && (
         <AvatarPickerModal
