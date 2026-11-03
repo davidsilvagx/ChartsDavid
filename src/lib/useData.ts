@@ -11,7 +11,7 @@ import {
   type SyncProgress,
   type SyncScope,
 } from './types';
-import { makeWeeks, namespace } from './calendar';
+import { formatDateTimeBR, makeWeeks, namespace } from './calendar';
 import { getMeta, readWeeks } from './storage';
 import { synchronize } from './sync';
 import {
@@ -138,6 +138,9 @@ export function useData(kind: Kind) {
   }, [settings.user, settings.startDate, settings.timezone, revision]);
 
   useEffect(() => {
+    // Keep the network queue responsive on mobile. Rebuilding and transferring
+    // the entire archive for every saved week can exhaust a phone's memory.
+    if (controller.current) return;
     const reqId = ++workerReqId.current;
     setComputing(true);
     const worker = new Worker(new URL('../workers/charts.worker.ts', import.meta.url), { type: 'module' });
@@ -164,11 +167,11 @@ export function useData(kind: Kind) {
       sourceFilter,
     });
     return () => worker.terminate();
-  }, [weeks, cached, kind, settings.deduplicate, settings.aliases, sourceFilter]);
+  }, [weeks, cached, kind, settings.deduplicate, settings.aliases, sourceFilter, revision]);
 
   useEffect(() => () => controller.current?.abort(), []);
 
-  const sync = async (scope: SyncScope = 'recent', force = false, useSettings = settings) => {
+  const sync = async (scope: SyncScope = 'all', force = false, useSettings = settings) => {
     if (controller.current) return;
     if (!useSettings.user.trim()) {
       setError('Informe seu usuário Last.fm em Ajustes para começar.');
@@ -213,14 +216,14 @@ export function useData(kind: Kind) {
         savedWeek => {
           pendingWeeks.set(savedWeek.week.id, savedWeek);
           if (!flushTimer) {
-            flushTimer = setTimeout(flushSavedWeeks, 420);
+            flushTimer = setTimeout(flushSavedWeeks, 1500);
           }
         },
       );
       if (flushTimer) clearTimeout(flushTimer);
       flushSavedWeeks();
       setProfile(syncedProfile);
-      setNotice('Seu histórico Last.fm está sincronizado e atualizado.');
+      setNotice(`${scope === 'recent' ? 'Últimas 8 semanas' : scope === 'all' ? 'Histórico completo' : `Ano ${scope}`} sincronizado em ${formatDateTimeBR(Date.now(), useSettings.timezone)} (${useSettings.timezone}).`);
     } catch (e) {
       if (flushTimer) clearTimeout(flushTimer);
       flushSavedWeeks();
