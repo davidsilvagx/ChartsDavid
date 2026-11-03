@@ -240,7 +240,9 @@ export function buildCharts(
         weeks: h.weeks,
         weeksAtOne: h.weeksAtOne,
         totalPlays: h.totalPlays,
-        run: h.run.map(r => ({ ...r })),
+        // Steps are immutable. Share them between snapshots to avoid millions of
+        // duplicate objects when loading years of history on a phone.
+        run: h.run.slice(),
       };
     });
     previous = ranked;
@@ -402,10 +404,10 @@ export function computeRecords(charts: ChartWeek[]): ChartRecords {
     for (const e of w.entries) {
       latestByItem.set(e.id, e);
       if (typeof e.change === 'number' && e.change > 0) {
-        jumps.push({ entry: e, jump: e.change, weekLabel: `${w.label}/${String(w.year).slice(2)}`, weekNumber: w.number });
+        jumps.push({ entry: e, jump: e.change, weekLabel: w.label, weekNumber: w.number });
       }
       if (e.change === 'NEW') {
-        debuts.push({ entry: e, weekLabel: `${w.label}/${String(w.year).slice(2)}`, weekNumber: w.number });
+        debuts.push({ entry: e, weekLabel: w.label, weekNumber: w.number });
       }
     }
   }

@@ -8,11 +8,12 @@ export const delay = (ms: number, signal?: AbortSignal) => new Promise<void>((re
   signal?.addEventListener('abort', abort, { once: true });
 });
 let nextSlot = 0;
-export async function api<T>(method: string, params: Record<string, string | number>, key = '', signal?: AbortSignal): Promise<T> {
+export async function api<T>(method: string, params: Record<string, string | number>, key = '', signal?: AbortSignal, onRetry?: (attempt: number) => void): Promise<T> {
   const query = new URLSearchParams({ method, ...Object.fromEntries(Object.entries(params).map(([k, v]) => [k, String(v)])) });
   if (key) { query.set('api_key', key); query.set('format', 'json'); }
   const url = `${key ? 'https://ws.audioscrobbler.com/2.0/' : '/api/lastfm'}?${query}`;
   for (let attempt = 0; attempt < 4; attempt++) {
+    if (attempt > 0) onRetry?.(attempt);
     const wait = Math.max(0, nextSlot - Date.now());
     nextSlot = Date.now() + wait + 300;
     await delay(wait, signal);
@@ -55,11 +56,11 @@ export async function getProfile(settings: Pick<Settings, 'user' | 'apiKey'>, si
   const u = response.user;
   return { name: u.name, realname: u.realname, image: safeImage(u.image), playcount: Number(u.playcount) || 0, registered: Number(u.registered?.unixtime) || 0, url: `https://www.last.fm/user/${encodeURIComponent(u.name)}` };
 }
-export async function fetchWeek(settings: Settings, week: Week, signal: AbortSignal, onPage: () => void, now = Date.now()) {
+export async function fetchWeek(settings: Settings, week: Week, signal: AbortSignal, onPage: (page: number, total: number) => void, now = Date.now(), onRetry?: (attempt: number) => void) {
   for (let consistencyAttempt = 0; consistencyAttempt < 3; consistencyAttempt++) {
     const cutoff = Math.min(week.end, Math.floor(now / 1000));
     const params = { user: settings.user.trim(), from: week.start - 1, to: cutoff, limit: 200 };
-    const first = await api<RecentResponse>('user.getRecentTracks', { ...params, page: 1 }, settings.apiKey, signal);
+    const first = await api<RecentResponse>('user.getRecentTracks', { ...params, page: 1 }, settings.apiKey, signal, onRetry);
     const attrs = first.recenttracks?.['@attr'];
     if (!attrs || attrs.user?.toLowerCase() !== settings.user.trim().toLowerCase()) throw new ApiError('O Last.fm retornou um perfil diferente. Nada foi salvo.', 6);
     const pages = Number(attrs.totalPages);
@@ -80,11 +81,11 @@ export async function fetchWeek(settings: Settings, week: Week, signal: AbortSig
         const parsed = parseTrack(t);
         if (parsed && parsed.timestamp >= week.start && parsed.timestamp < cutoff) scrobbles.push(parsed);
       }
-      onPage();
+      onPage(Number(a.page), pages);
     };
     collect(first);
     for (let page = 2; page <= pages && !inconsistent; page++) {
-      collect(await api<RecentResponse>('user.getRecentTracks', { ...params, page }, settings.apiKey, signal));
+      collect(await api<RecentResponse>('user.getRecentTracks', { ...params, page }, settings.apiKey, signal, onRetry));
     }
     if (inconsistent) {
       if (consistencyAttempt < 2) {

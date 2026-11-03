@@ -47,6 +47,7 @@ export interface Week {
 }
 
 export interface CachedWeek {
+  lastfmSynced?: boolean;
   key: string;
   week: Week;
   scrobbles: Scrobble[];

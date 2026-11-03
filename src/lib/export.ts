@@ -1,4 +1,4 @@
-import { makeWeeks, validateCalendar } from './calendar';
+import { formatDateBR, makeWeeks, validateCalendar } from './calendar';
 import { defaults, type CachedWeek, type ChartEntry, type Profile, type Settings } from './types';
 export function download(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
@@ -12,7 +12,7 @@ export function csvCell(value: unknown) {
   return `"${s.replace(/"/g, '""')}"`;
 }
 export function chartCSV(entries: ChartEntry[]) {
-  return '\ufeff' + [['Posição', 'Variação', 'Semanas fora antes do retorno', 'Total semanas fora', 'Título', 'Artista', 'Álbum', 'Reproduções', 'Pico Top 100', 'Semanas Top 100', 'Chart run'], ...entries.map(e => [e.rank, e.change, e.hiatusWeeks ?? '', e.weeksOut ?? 0, e.name, e.artist, e.album, e.plays, e.peak, e.weeks, e.run.map(r => `${r.week}:${r.rank === undefined ? '?' : r.rank ?? `OUT(${r.plays ?? 0}p)`}`).join(' | ')])].map(row => row.map(csvCell).join(',')).join('\r\n');
+  return '\ufeff' + [['Posição', 'Variação', 'Semanas fora antes do retorno', 'Total semanas fora', 'Título', 'Artista', 'Álbum', 'Reproduções', 'Pico Top 100', 'Semanas Top 100', 'Chart run'], ...entries.map(e => [e.rank, e.change, e.hiatusWeeks ?? '', e.weeksOut ?? 0, e.name, e.artist, e.album, e.plays, e.peak, e.weeks, e.run.map(r => `${formatDateBR(r.week)}:${r.rank === undefined ? '?' : r.rank ?? `OUT(${r.plays ?? 0}p)`}`).join(' | ')])].map(row => row.map(csvCell).join(',')).join('\r\n');
 }
 export function backupJSON(settings: Settings, weeks: CachedWeek[], profile: Profile | null) {
   const { apiKey: _key, ...safeSettings } = settings;
@@ -50,7 +50,7 @@ export function parseBackup(text: string): { settings: Settings; weeks: CachedWe
       seen.add(key);
       return { timestamp: s.timestamp, artist: s.artist.slice(0,1000), track: s.track.slice(0,1000), album: s.album.slice(0,1000), image: typeof s.image === 'string' && /^https:\/\//.test(s.image) ? s.image : '', ...(source ? { source } : {}) };
     });
-    return { key: '', week, scrobbles, fetchedAt: w.fetchedAt, cutoff: w.cutoff, duplicates };
+    return { key: '', week, scrobbles, fetchedAt: w.fetchedAt, cutoff: w.cutoff, duplicates, lastfmSynced: typeof w.lastfmSynced === 'boolean' ? w.lastfmSynced : undefined };
   });
   // Profile is refetched rather than trusting arbitrary imported links or metadata.
   return { settings, weeks, profile: null };

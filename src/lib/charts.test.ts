@@ -7,6 +7,15 @@ const settings={...defaults,user:'test',timezone:'UTC'};
 const weeks=makeWeeks(settings,Date.parse('2016-07-23T12:00:00Z'));
 const scrobble=(week:number,name='Song',artist='Artist',album='Album',offset=100):Scrobble=>({timestamp:weeks[week].start+offset,track:name,artist,album,image:''});
 const cache=(index:number,scrobbles:Scrobble[]):CachedWeek=>({key:String(index),week:weeks[index],scrobbles,cutoff:weeks[index].end,fetchedAt:1,duplicates:0});
+it('compartilha passos imutáveis para economizar memória sem estender snapshots antigos', () => {
+ const result=buildCharts(weeks.slice(0,3),[cache(0,repeat(0,'Song',2)),cache(1,[]),cache(2,repeat(2,'Song',1))],'tracks');
+ const first=result[0].entries[0].run;
+ const latest=result[2].entries[0].run;
+ expect(first).toHaveLength(1);
+ expect(latest.map(r=>r.rank)).toEqual([1,null,1]);
+ expect(latest[0]).toBe(first[0]);
+ expect(first).not.toBe(latest);
+});
 const repeat=(week:number,name:string,count:number)=>Array.from({length:count},(_,i)=>scrobble(week,name,'Artist','Album',100+i));
 describe('Calendário de sexta-feira',()=>{
  it('preserva semana 1 e todas as semanas vazias',()=>{expect(weeks[0].id).toBe('2016-06-24');expect(new Date(weeks[0].start*1000).toISOString()).toBe('2016-06-24T00:00:00.000Z');expect(new Date(weeks[0].end*1000).toISOString()).toBe('2016-07-01T00:00:00.000Z');expect(weeks.map(w=>w.number)).toEqual([1,2,3,4,5]);});

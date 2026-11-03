@@ -17,6 +17,7 @@ import {
   type ConnectedPlatformAccount,
 } from '../lib/platforms';
 import { Modal, MusicLoader, number } from './UI';
+import { formatDateBR, formatDateTimeBR } from '../lib/calendar';
 
 export function PlatformLogo({
   platform,
@@ -180,7 +181,7 @@ export function PlatformsHub({
       for (const file of Array.from(files)) {
         if (file.size > 120 * 1024 * 1024) throw new Error(`O arquivo ${file.name} excede 120 MB.`);
         const parsed = parseSpotifyHistoryJSON(await file.text());
-        allScrobbles.push(...parsed);
+        for (const scrobble of parsed) allScrobbles.push(scrobble);
       }
       if (!allScrobbles.length) {
         throw new Error('Nenhuma música válida (mínimo de 30s) foi encontrada nos arquivos do Spotify.');
@@ -198,7 +199,7 @@ export function PlatformsHub({
       setSpotifyAcc({ ...nextAcc });
       onDataChanged();
       onNotice(
-        `Spotify importado: ${number(res.addedPlays)} reproduções adicionadas em ${res.touchedWeeks} semanas${res.skippedBeforeStart ? ` (${number(res.skippedBeforeStart)} anteriores a ${settings.startDate} ignoradas)` : ''}.`,
+        `Spotify importado: ${number(res.addedPlays)} reproduções adicionadas em ${res.touchedWeeks} semanas${res.skippedBeforeStart ? ` (${number(res.skippedBeforeStart)} anteriores a ${formatDateBR(settings.startDate)} ignoradas)` : ''}.`,
       );
     } catch (e) {
       onError(e instanceof Error ? e.message : 'Falha ao importar arquivo do Spotify.');
@@ -216,7 +217,7 @@ export function PlatformsHub({
       for (const file of Array.from(files)) {
         if (file.size > 150 * 1024 * 1024) throw new Error(`O arquivo ${file.name} excede 150 MB.`);
         const parsed = parseYouTubeMusicHistory(await file.text(), file.name);
-        allScrobbles.push(...parsed);
+        for (const scrobble of parsed) allScrobbles.push(scrobble);
       }
       if (!allScrobbles.length) {
         throw new Error('Nenhuma reprodução do YouTube Music foi encontrada neste arquivo.');
@@ -234,7 +235,7 @@ export function PlatformsHub({
       setYtAcc({ ...nextAcc });
       onDataChanged();
       onNotice(
-        `YouTube Music importado: ${number(res.addedPlays)} reproduções adicionadas em ${res.touchedWeeks} semanas${res.skippedBeforeStart ? ` (${number(res.skippedBeforeStart)} anteriores a ${settings.startDate} ignoradas)` : ''}.`,
+        `YouTube Music importado: ${number(res.addedPlays)} reproduções adicionadas em ${res.touchedWeeks} semanas${res.skippedBeforeStart ? ` (${number(res.skippedBeforeStart)} anteriores a ${formatDateBR(settings.startDate)} ignoradas)` : ''}.`,
       );
     } catch (e) {
       onError(e instanceof Error ? e.message : 'Falha ao importar histórico do YouTube Music.');
@@ -248,7 +249,6 @@ export function PlatformsHub({
       const cid = spotifyClientDraft.trim();
       if (!cid) {
         setShowSpotifyOAuth(true);
-        onError('Cole o Client ID do seu app Spotify Developer (ou use Importar JSON ao lado).');
         return;
       }
       setSettings({ ...settings, spotifyClientId: cid });
@@ -280,12 +280,12 @@ export function PlatformsHub({
     const cid = googleClientDraft.trim();
     if (!cid) {
       setShowYtOAuth(true);
-      onError('Cole o Google OAuth Client ID (ou importe o arquivo watch-history.json do Google Takeout).');
       return;
     }
     setSettings({ ...settings, googleClientId: cid });
     setBusyPlatform('ytmusic');
-    startYouTubeOAuth(cid);
+    try { startYouTubeOAuth(cid); }
+    catch (e) { setBusyPlatform(null); onError(e instanceof Error ? e.message : 'Falha ao conectar Google.'); }
   };
 
   const handleClearPlatform = async (source: 'spotify' | 'ytmusic') => {
@@ -368,8 +368,7 @@ export function PlatformsHub({
               </span>
             </div>
             <p>
-              Conecte via OAuth PKCE (faixas recentes) ou importe seu pacote oficial{' '}
-              <code>StreamingHistory_music.json</code> para montar anos inteiros de charts.
+              Para registrar as próximas músicas, conecte o Spotify ao Last.fm. Para recuperar anos anteriores, importe seu histórico do Spotify.
             </p>
           </div>
         </div>
@@ -377,12 +376,12 @@ export function PlatformsHub({
         <div className="platform-actions">
           <label className={`button primary small file-button ${busyPlatform === 'spotify' ? 'is-loading disabled' : ''}`}>
             {busyPlatform === 'spotify' ? <MusicLoader size="sm" tone="ink" /> : <Upload size={14} />}
-            <span>{busyPlatform === 'spotify' ? 'Processando Spotify…' : 'Importar JSON Spotify'}</span>
+            <span>{busyPlatform === 'spotify' ? 'Processando Spotify…' : 'Já tenho o arquivo · importar'}</span>
             <input
               type="file"
               accept="application/json,.json"
               multiple
-              disabled={busyPlatform !== null}
+              disabled={busyPlatform !== null || syncingLastfm}
               onChange={e => {
                 void handleSpotifyFiles(e.target.files);
                 e.target.value = '';
@@ -394,7 +393,7 @@ export function PlatformsHub({
             <button
               type="button"
               className="button small"
-              disabled={busyPlatform !== null}
+              disabled={busyPlatform !== null || syncingLastfm}
               onClick={() => void handleRefreshSpotifyOAuth()}
             >
               <RefreshCw size={14} />
@@ -404,11 +403,12 @@ export function PlatformsHub({
             <button
               type="button"
               className="button small"
-              disabled={busyPlatform !== null}
-              onClick={() => setShowSpotifyOAuth(v => !v)}
+              disabled={busyPlatform !== null || syncingLastfm}
+              onClick={() => spotifyClientDraft.trim() ? void handleConnectSpotifyOAuth() : setShowSpotifyOAuth(v => !v)}
+              aria-expanded={spotifyClientDraft.trim() ? undefined : showSpotifyOAuth}
             >
               <SlidersHorizontal size={14} />
-              <span>Conectar conta OAuth</span>
+              <span>{spotifyClientDraft.trim() ? 'Entrar com Spotify' : 'Sobre o login Spotify'}</span>
             </button>
           )}
 
@@ -418,7 +418,7 @@ export function PlatformsHub({
               className="icon-button"
               title="Desconectar e limpar dados do Spotify"
               aria-label="Desconectar e limpar dados do Spotify"
-              disabled={busyPlatform !== null}
+              disabled={busyPlatform !== null || syncingLastfm}
               onClick={() => void handleClearPlatform('spotify')}
             >
               <Trash2 size={15} />
@@ -426,10 +426,24 @@ export function PlatformsHub({
           )}
         </div>
 
+        <details className="platform-guide">
+          <summary>Como trazer minhas músicas do Spotify?</summary>
+          <ol>
+            <li>Para novas audições: abra <a href="https://www.last.fm/settings/applications" target="_blank" rel="noreferrer">Aplicativos do Last.fm</a>, conecte “Spotify Scrobbling” e volte aqui para sincronizar.</li>
+            <li>Para o histórico antigo: solicite o “Histórico de streaming estendido” em <a href="https://www.spotify.com/account/privacy/" target="_blank" rel="noreferrer">Privacidade do Spotify</a>. A preparação é feita pelo Spotify e pode levar alguns dias.</li>
+            <li>Extraia o ZIP recebido, toque em “Já tenho o arquivo · importar” e selecione os arquivos JSON de música. Depois use o filtro Spotify nos charts.</li>
+          </ol>
+        </details>
+        {spotifyAcc && <p className="connection-note">Última atualização: {formatDateTimeBR(spotifyAcc.lastSyncedAt, settings.timezone)} ({settings.timezone})</p>}
         {showSpotifyOAuth && (
           <div className="oauth-drawer">
+            <p className="connection-note">O login usa a própria tela do Spotify, sem pedir sua senha aqui. Ele traz apenas audições recentes, não todo o histórico. O responsável pelo LastChart precisa cadastrar a integração no Spotify para habilitar o botão de entrada para todos.</p>
+            <details className="platform-guide">
+            <summary>Configuração avançada · o que é Client ID?</summary>
+            <p>É o identificador público de um aplicativo cadastrado no Spotify; não é seu usuário, senha ou Client Secret. Usuários comuns podem usar as opções de importação acima sem configurar isso.</p>
+            <ol><li>Abra o painel Spotify for Developers e crie ou selecione seu app.</li><li>Em Settings, copie o Client ID e cadastre exatamente o endereço de retorno abaixo. O Spotify pode restringir o login a contas autorizadas no app.</li><li>Cole somente o Client ID e toque em “Autorizar no Spotify”.</li></ol>
             <label>
-              Spotify Client ID (PKCE sem servidor)
+              Client ID do aplicativo Spotify
               <input
                 value={spotifyClientDraft}
                 onChange={e => setSpotifyClientDraft(e.target.value)}
@@ -437,7 +451,7 @@ export function PlatformsHub({
                 autoComplete="off"
               />
               <small>
-                Crie gratuitamente em{' '}
+                Painel oficial:{' '}
                 <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noreferrer">
                   developer.spotify.com/dashboard
                 </a>{' '}
@@ -454,12 +468,13 @@ export function PlatformsHub({
             <button
               type="button"
               className="button primary small"
-              disabled={busyPlatform !== null}
+              disabled={busyPlatform !== null || syncingLastfm}
               onClick={() => void handleConnectSpotifyOAuth()}
             >
               <span>Autorizar no Spotify</span>
               <ExternalLink size={13} />
             </button>
+            </details>
           </div>
         )}
       </article>
@@ -482,8 +497,7 @@ export function PlatformsHub({
               </span>
             </div>
             <p>
-              Importe seu histórico do Google Takeout (<code>watch-history.json</code> /{' '}
-              <code>histórico-de-visualização.json</code> ou CSV). O login Google identifica sua conta; o histórico precisa do Takeout.
+              Traga suas audições pelo Google Takeout. Entrar com Google apenas identifica sua conta: o Google não libera o histórico de músicas por esse login.
             </p>
           </div>
         </div>
@@ -491,12 +505,12 @@ export function PlatformsHub({
         <div className="platform-actions">
           <label className={`button primary small file-button ${busyPlatform === 'ytmusic' ? 'is-loading disabled' : ''}`}>
             {busyPlatform === 'ytmusic' ? <MusicLoader size="sm" tone="ink" /> : <Upload size={14} />}
-            <span>{busyPlatform === 'ytmusic' ? 'Processando YT Music…' : 'Importar Takeout / CSV'}</span>
+            <span>{busyPlatform === 'ytmusic' ? 'Processando YT Music…' : 'Já tenho o Takeout · importar'}</span>
             <input
               type="file"
               accept="application/json,.json,.csv,text/csv"
               multiple
-              disabled={busyPlatform !== null}
+              disabled={busyPlatform !== null || syncingLastfm}
               onChange={e => {
                 void handleYouTubeFiles(e.target.files);
                 e.target.value = '';
@@ -507,11 +521,11 @@ export function PlatformsHub({
           <button
             type="button"
             className="button small"
-            disabled={busyPlatform !== null}
+            disabled={busyPlatform !== null || syncingLastfm}
             onClick={() => setShowYtOAuth(v => !v)}
           >
             <SlidersHorizontal size={14} />
-            <span>Conta Google / Importação</span>
+            <span>Opções avançadas Google</span>
           </button>
 
           {(counts.ytmusic > 0 || ytAcc) && (
@@ -520,7 +534,7 @@ export function PlatformsHub({
               className="icon-button"
               title="Desconectar e limpar dados do YouTube Music"
               aria-label="Desconectar e limpar dados do YouTube Music"
-              disabled={busyPlatform !== null}
+              disabled={busyPlatform !== null || syncingLastfm}
               onClick={() => void handleClearPlatform('ytmusic')}
             >
               <Trash2 size={15} />
@@ -528,10 +542,23 @@ export function PlatformsHub({
           )}
         </div>
 
+        <details className="platform-guide">
+          <summary>Como importar do YouTube Music?</summary>
+          <ol>
+            <li>Abra o <a href="https://takeout.google.com/" target="_blank" rel="noreferrer">Google Takeout</a>, desmarque os demais produtos e selecione “YouTube e YouTube Music”.</li>
+            <li>Inclua o histórico, escolha o formato JSON e solicite a exportação. Aguarde o Google preparar o download.</li>
+            <li>Extraia o ZIP e importe o arquivo <code>watch-history.json</code> (ou o nome equivalente em português). Depois escolha YouTube Music no filtro dos charts.</li>
+          </ol>
+        </details>
+        {ytAcc && <p className="connection-note">Última atualização: {formatDateTimeBR(ytAcc.lastSyncedAt, settings.timezone)} ({settings.timezone})</p>}
         {showYtOAuth && (
           <div className="oauth-drawer">
+            <p className="connection-note">Opcional, apenas para identificar a conta. Para gerar charts, use o Takeout acima.</p>
+            <details className="platform-guide">
+            <summary>Configurar login Google · para quem administra o app</summary>
+            <p>Client ID é o identificador público do aplicativo no Google. No Google Cloud Console, configure o consentimento OAuth, crie um cliente Web e cadastre o endereço de retorno abaixo. Nunca informe Client Secret aqui.</p>
             <label>
-              Google OAuth Client ID (YouTube Data API v3)
+              Client ID do aplicativo Google
               <input
                 value={googleClientDraft}
                 onChange={e => setGoogleClientDraft(e.target.value)}
@@ -550,7 +577,7 @@ export function PlatformsHub({
               <button
                 type="button"
                 className="button primary small"
-                disabled={busyPlatform !== null}
+                disabled={busyPlatform !== null || syncingLastfm}
                 onClick={handleConnectYouTubeOAuth}
               >
                 <span>Conectar com Google</span>
@@ -561,6 +588,7 @@ export function PlatformsHub({
                 <ExternalLink size={13} />
               </a>
             </div>
+            </details>
           </div>
         )}
       </article>
