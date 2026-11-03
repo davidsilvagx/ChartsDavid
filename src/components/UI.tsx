@@ -23,20 +23,16 @@ function supportsTopLayerExit(): boolean {
   return typeof window !== 'undefined' && !!window.CSS?.supports?.('overlay', 'auto') && canTransitionDisplay();
 }
 
-export function Cover({
-  item,
-  size = '',
-  round = false,
-}: {
-  item: Pick<Item, 'id' | 'image' | 'name' | 'artist' | 'album'>;
-  size?: string;
-  round?: boolean;
-}) {
-  const [failed, setFailed] = useState(false);
-  const [fallbackUrl, setFallbackUrl] = useState<string>(() => peekCatalogMedia(item)?.artworkUrl ?? '');
+export type ArtworkTarget = Pick<Item, 'id' | 'image' | 'name' | 'artist' | 'album'>;
+
+export function useArtworkUrl(item?: ArtworkTarget | null): string {
+  const [fallbackUrl, setFallbackUrl] = useState<string>(() => (item ? peekCatalogMedia(item)?.artworkUrl ?? '' : ''));
 
   useEffect(() => {
-    setFailed(false);
+    if (!item) {
+      setFallbackUrl('');
+      return;
+    }
     if (item.image) {
       setFallbackUrl('');
       return;
@@ -55,14 +51,47 @@ export function Cover({
     return () => {
       active = false;
     };
-  }, [item.id, item.image, item.artist, item.name, item.album]);
+  }, [item?.id, item?.image, item?.artist, item?.name, item?.album]);
 
-  const src = !failed ? item.image || fallbackUrl : '';
+  return item?.image || fallbackUrl || '';
+}
+
+export function AmbientBackdrop({
+  src,
+  active = false,
+  className = '',
+}: {
+  src?: string;
+  active?: boolean;
+  className?: string;
+}) {
+  if (!src) return null;
+  return (
+    <div className={`ambient-backdrop ${active ? 'is-playing' : ''} ${className}`} aria-hidden="true">
+      <img className="ambient-layer primary" src={src} alt="" loading="lazy" decoding="async" />
+      <img className="ambient-layer secondary" src={src} alt="" loading="lazy" decoding="async" />
+      <span className="ambient-scrim" />
+    </div>
+  );
+}
+
+export function Cover({
+  item,
+  size = '',
+  round = false,
+}: {
+  item: ArtworkTarget;
+  size?: string;
+  round?: boolean;
+}) {
+  const [failedSrc, setFailedSrc] = useState<string>('');
+  const resolved = useArtworkUrl(item);
+  const src = resolved && resolved !== failedSrc ? resolved : '';
 
   return (
     <span className={`cover ${size} ${round ? 'round' : ''}`}>
       {src ? (
-        <img src={src} alt={`Capa de ${item.name}`} loading="lazy" onError={() => setFailed(true)} />
+        <img src={src} alt={`Capa de ${item.name}`} loading="lazy" onError={() => setFailedSrc(src)} />
       ) : (
         <Disc3 aria-hidden="true" />
       )}
@@ -98,12 +127,16 @@ export function Modal({
   onClose,
   children,
   wide = false,
+  ambientImage,
+  ambientActive = false,
 }: {
   title: string;
   subtitle?: string;
   onClose: () => void;
   children: ReactNode;
   wide?: boolean;
+  ambientImage?: string;
+  ambientActive?: boolean;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const titleId = useId();
@@ -147,7 +180,7 @@ export function Modal({
     <dialog
       ref={dialogRef}
       {...({ closedby: 'any' } as Record<string, string>)}
-      className={`modal ${wide ? 'wide' : ''}`}
+      className={`modal ${wide ? 'wide' : ''} ${ambientImage ? 'has-ambient' : ''}`}
       aria-labelledby={titleId}
       onCancel={e => {
         e.preventDefault();
@@ -164,12 +197,13 @@ export function Modal({
       }}
     >
       <div className="modal-shell">
+        {ambientImage && <AmbientBackdrop src={ambientImage} active={ambientActive} className="modal-ambient" />}
         <header>
           <div>
             <h2 id={titleId}>{title}</h2>
             {subtitle && <p>{subtitle}</p>}
           </div>
-          <button type="button" className="icon-button" onClick={() => void requestDismiss()} aria-label="Fechar janela">
+          <button type="button" className="icon-button modal-close-btn" onClick={() => void requestDismiss()} aria-label="Fechar janela">
             <X size={18} />
           </button>
         </header>
@@ -243,16 +277,26 @@ export function MiniPlayer({
   onToggle: () => void;
   onClose: () => void;
 }) {
+  const artworkUrl = useArtworkUrl(state?.item ?? null);
   if (!state) return null;
   const spotifyQuery = encodeURIComponent(`${state.item.artist} ${state.item.name}`);
   return (
-    <aside className="mini-player" aria-label="Reprodutor de prévia musical">
+    <aside className={`mini-player ${state.playing ? 'is-playing' : ''}`} aria-label="Reprodutor de prévia musical">
+      {artworkUrl && <AmbientBackdrop src={artworkUrl} active={state.playing} className="mini-player-ambient" />}
       <div className="mini-player-bar" style={{ transform: `scaleX(${state.progress})` }} />
-      <Cover item={state.item} round />
+      <Cover item={state.item} />
       <div className="mini-player-meta">
         <div className="mini-player-badge">
-          <Volume2 size={12} />
-          <span>{state.loading ? 'Buscando prévia…' : state.unavailable ? 'Prévia indisponível no catálogo' : 'Prévia 30s · Catálogo'}</span>
+          {state.playing ? (
+            <span className="eq-bars" aria-hidden="true">
+              <i />
+              <i />
+              <i />
+            </span>
+          ) : (
+            <Volume2 size={12} />
+          )}
+          <span>{state.loading ? 'Buscando prévia…' : state.unavailable ? 'Prévia indisponível no catálogo' : state.playing ? 'Tocando agora · 30s' : 'Prévia 30s · Catálogo'}</span>
         </div>
         <strong>{state.item.name}</strong>
         <small>{state.item.artist}</small>

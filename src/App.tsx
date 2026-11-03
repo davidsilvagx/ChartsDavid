@@ -53,7 +53,7 @@ import { renderWeeklyShareCard, palettes } from './lib/canvas';
 import { resolveCatalogMedia } from './lib/catalog';
 import { backupJSON, chartCSV, download, parseBackup } from './lib/export';
 import { importWeeks } from './lib/storage';
-import { Cover, Change, Empty, MiniPlayer, Modal, Sparkline, number, type PreviewPlayerState } from './components/UI';
+import { AmbientBackdrop, Cover, Change, Empty, MiniPlayer, Modal, Sparkline, number, useArtworkUrl, type PreviewPlayerState } from './components/UI';
 import { AvatarPickerModal, ProfileAvatar, getAvatarLabel } from './components/Avatars';
 import { ChartCanvas } from './components/ChartCanvas';
 import { Studio } from './components/Studio';
@@ -124,6 +124,8 @@ function App() {
     [selected, top, query],
   );
   const leader = known ? selected.entries[0] : undefined;
+  const leaderArtwork = useArtworkUrl(leader ?? null);
+  const heroArtwork = useArtworkUrl(player?.item ?? leader ?? null);
   const recent = useMemo(() => charts.filter(w => w.start <= (selected?.start ?? Infinity)).slice(-8), [charts, selected?.start]);
   const chartItems = useMemo(() => selected?.entries.slice(0, 5) ?? [], [selected]);
   const totalScrobbles = useMemo(() => cached.reduce((sum, w) => sum + w.scrobbles.length, 0), [cached]);
@@ -520,7 +522,10 @@ function App() {
             </div>
           )}
 
-          <section className="hero-banner">
+          <section className={`hero-banner ${page !== 'settings' && heroArtwork ? 'has-ambient' : ''}`}>
+            {page !== 'settings' && heroArtwork && (
+              <AmbientBackdrop src={heroArtwork} active={!!player?.playing} className="hero-ambient" />
+            )}
             <div className="hero-rings" aria-hidden="true">
               <span />
               <span />
@@ -778,7 +783,14 @@ function App() {
                       </div>
                     </section>
 
-                    <section className="number-one">
+                    <section className={`number-one ${leaderArtwork ? 'has-ambient' : ''}`}>
+                      {leaderArtwork && (
+                        <AmbientBackdrop
+                          src={leaderArtwork}
+                          active={!!(leader && player?.item.id === leader.id && player.playing)}
+                          className="spotlight-ambient"
+                        />
+                      )}
                       <div className="spotlight-orbit" aria-hidden="true" />
                       <span className="eyebrow gold-eyebrow">
                         <Crown size={15} />
@@ -1255,6 +1267,7 @@ function App() {
         <Detail
           item={detail}
           charts={charts}
+          playing={!!(player && player.item.id === detail.id && player.playing)}
           onClose={() => setDetail(null)}
           onPreview={() => void playPreview(detail)}
           onAnimate={() => {
@@ -1562,6 +1575,7 @@ function RecordsBoard({
 function Detail({
   item,
   charts,
+  playing,
   onClose,
   onPreview,
   onAnimate,
@@ -1570,6 +1584,7 @@ function Detail({
 }: {
   item: Item;
   charts: ChartWeek[];
+  playing: boolean;
   onClose: () => void;
   onPreview: () => void;
   onAnimate: () => void;
@@ -1578,12 +1593,16 @@ function Detail({
 }) {
   const audit = getItemAuditHistory(charts, item.id, item.plays);
   const cert = getCertification(audit.totalPlays);
+  const artworkUrl = useArtworkUrl(item);
   const q = encodeURIComponent(`${item.artist} ${item.name}`);
 
   return (
-    <Modal title={item.name} subtitle={item.artist} onClose={onClose} wide>
-      <div className="detail-hero">
-        <Cover item={item} size="large" />
+    <Modal title={item.name} subtitle={item.artist} onClose={onClose} wide ambientImage={artworkUrl} ambientActive={playing}>
+      <div className={`detail-hero apple-stage ${playing ? 'is-playing' : ''}`}>
+        <div className="apple-cover-pedestal">
+          <Cover item={item} size="large" />
+          <span className="apple-cover-glow" aria-hidden="true" />
+        </div>
         <div className="detail-hero-meta">
           <div className="detail-badges">
             <span className="eyebrow">HISTÓRICO NO RANKING</span>
@@ -1591,15 +1610,15 @@ function Detail({
           </div>
           <h3>{item.album || item.artist}</h3>
           <div className="detail-quick-actions">
-            <button type="button" className="button primary small" onClick={onPreview}>
-              <Play size={14} fill="currentColor" />
-              <span>Prévia 30s</span>
+            <button type="button" className="button apple-play-btn small" onClick={onPreview}>
+              {playing ? <Pause size={15} fill="currentColor" /> : <Play size={15} fill="currentColor" />}
+              <span>{playing ? 'Pausar prévia' : 'Prévia 30s'}</span>
             </button>
-            <button type="button" className="button small" onClick={onAnimate}>
+            <button type="button" className="button apple-glass-pill small" onClick={onAnimate}>
               <Film size={14} />
               <span>Animar trajetória</span>
             </button>
-            <button type="button" className="button small" onClick={onFavorite}>
+            <button type="button" className={`button apple-glass-pill small ${favorite ? 'favorite-active' : ''}`} onClick={onFavorite}>
               <Heart size={14} fill={favorite ? 'currentColor' : 'none'} />
               <span>{favorite ? 'Favoritado' : 'Favoritar'}</span>
             </button>
@@ -1645,30 +1664,51 @@ function Detail({
         </div>
       )}
 
-      <h3 className="section-subhead">Chart Run Completo (Estreia até Hoje)</h3>
-      {audit.charted ? (
-        <div className="chart-run">
-          {audit.run.map(r => (
-            <span
-              key={r.week}
-              title={
-                r.rank === undefined
-                  ? `Sem. ${r.number} (${r.label}/${r.year}): não sincronizada`
-                  : r.rank === null
-                    ? `Sem. ${r.number} (${r.label}/${r.year}): fora do Top 100 (${r.plays ?? 0} plays)`
-                    : `Sem. ${r.number} (${r.label}/${r.year}): #${r.rank} (${r.plays ?? 0} plays)`
-              }
-              className={r.rank === 1 ? 'peak' : typeof r.rank === 'number' && r.rank <= 10 ? 'top10-cell' : typeof r.rank === 'number' ? '' : 'absent'}
-            >
-              <small>{r.week.slice(5).split('-').reverse().join('/')}</small>
-              <strong>{r.rank === undefined ? '?' : r.rank ? `#${r.rank}` : 'OUT'}</strong>
-              <em className="run-plays">{r.rank === undefined ? 's/ dados' : `${r.plays ?? 0}p`}</em>
-            </span>
-          ))}
+      <section className="chart-run-panel" aria-labelledby="chart-run-heading">
+        <div className="chart-run-header">
+          <h3 id="chart-run-heading" className="section-subhead">
+            Chart Run Completo (Estreia até Hoje)
+          </h3>
+          {audit.charted && (
+            <div className="chart-run-legend" aria-hidden="true">
+              <span className="legend-dot gold">#1</span>
+              <span className="legend-dot emerald">Top 10</span>
+              <span className="legend-dot out">OUT</span>
+            </div>
+          )}
         </div>
-      ) : (
-        <p className="note">Este item não alcançou o Top 100 nas semanas sincronizadas (sem posições inventadas).</p>
-      )}
+        {audit.charted ? (
+          <div className="chart-run">
+            {audit.run.map(r => (
+              <span
+                key={r.week}
+                title={
+                  r.rank === undefined
+                    ? `Sem. ${r.number} (${r.label}/${r.year}): não sincronizada`
+                    : r.rank === null
+                      ? `Sem. ${r.number} (${r.label}/${r.year}): fora do Top 100 (${r.plays ?? 0} plays)`
+                      : `Sem. ${r.number} (${r.label}/${r.year}): #${r.rank} (${r.plays ?? 0} plays)`
+                }
+                className={
+                  r.rank === 1
+                    ? 'peak'
+                    : typeof r.rank === 'number' && r.rank <= 10
+                      ? 'top10-cell'
+                      : typeof r.rank === 'number'
+                        ? 'in-chart'
+                        : 'absent'
+                }
+              >
+                <small>{r.week.slice(5).split('-').reverse().join('/')}</small>
+                <strong>{r.rank === undefined ? '?' : r.rank ? `#${r.rank}` : 'OUT'}</strong>
+                <em className="run-plays">{r.rank === undefined ? 's/ dados' : `${r.plays ?? 0}p`}</em>
+              </span>
+            ))}
+          </div>
+        ) : (
+          <p className="note">Este item não alcançou o Top 100 nas semanas sincronizadas (sem posições inventadas).</p>
+        )}
+      </section>
 
       <p className="note">
         Transparência ZeroCharts: apenas faixas com plays reais na janela de sexta 00:00 a quinta 23:59 entram no ranking. OUT indica semana fora do chart (0p = zero plays); ? indica semana ainda não baixada.
@@ -1859,7 +1899,7 @@ function SettingsPage({
                 autoComplete="off"
                 value={draft.apiKey}
                 onChange={e => change('apiKey', e.target.value)}
-                placeholder="Usar chave configurada no servidor / Netlify"
+                placeholder="Usar chave configurada no servidor (Vercel / Netlify)"
               />
               <small>Deixe em branco para usar o proxy do servidor. Chaves pessoais ficam restritas ao seu navegador.</small>
             </label>

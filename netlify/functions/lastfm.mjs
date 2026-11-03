@@ -1,10 +1,15 @@
-const allowed = new Set(['user.getInfo', 'user.getRecentTracks', 'user.getWeeklyChartList', 'user.getTopTracks', 'user.getTopAlbums', 'artist.getTopTracks', 'artist.getTopAlbums', 'album.getInfo', 'track.getInfo']);
+const allowed = new Map(
+  ['user.getInfo', 'user.getRecentTracks', 'user.getWeeklyChartList', 'user.getTopTracks', 'user.getTopAlbums', 'artist.getTopTracks', 'artist.getTopAlbums', 'album.getInfo', 'track.getInfo'].map(
+    m => [m.toLowerCase(), m],
+  ),
+);
 const parameters = new Set(['user', 'artist', 'album', 'track', 'page', 'limit', 'from', 'to', 'period']);
 export async function lastfmProxy(search, apiKey) {
-  if (!apiKey) return Response.json({ error: 10, message: 'Configure LASTFM_API_KEY na Netlify ou informe sua chave nos Ajustes.' }, { status: 503 });
+  if (!apiKey) return Response.json({ error: 10, message: 'Configure LASTFM_API_KEY no servidor (Vercel/Netlify) ou informe sua chave nos Ajustes.' }, { status: 503 });
   const incoming = new URLSearchParams(search);
-  const method = incoming.get('method');
-  if (!allowed.has(method)) return Response.json({ error: 3, message: 'Método não permitido.' }, { status: 400 });
+  const rawMethod = incoming.get('method') || '';
+  const method = allowed.get(rawMethod.toLowerCase());
+  if (!method) return Response.json({ error: 3, message: 'Método não permitido.' }, { status: 400 });
   const params = new URLSearchParams({ method, api_key: apiKey, format: 'json' });
   for (const [key, value] of incoming) if (parameters.has(key) && value.length <= 300) params.set(key, value);
   try {
