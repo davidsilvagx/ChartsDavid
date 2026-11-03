@@ -14,6 +14,15 @@ beforeEach(()=>{
  vi.mocked(fetchWeek).mockImplementation(async (_s,w,_signal,page)=>{page(1,1);return result(w);});
 });
 describe('Progresso de sincronização',()=>{
+ it('baixa o arquivo completo sem limitar a oito e prioriza as semanas mais novas',async()=>{
+  const progress:SyncProgress[]=[];
+  await synchronize(settings,'all',new AbortController().signal,p=>progress.push({...p}));
+  const all=makeWeeks(settings);
+  expect(fetchWeek).toHaveBeenCalledTimes(all.length);
+  expect(vi.mocked(fetchWeek).mock.calls[0][1].id).toBe(all.at(-1)!.id);
+  expect(vi.mocked(fetchWeek).mock.calls.at(-1)![1].id).toBe(all[0].id);
+  expect(progress.at(-1)).toMatchObject({completed:all.length,total:all.length,phase:'done'});
+ });
  it('avança ao salvar cada semana e conclui o lote real',async()=>{
   const progress:SyncProgress[]=[]; const saved=vi.fn();
   await synchronize({...defaults,user:'test'},'recent',new AbortController().signal,p=>progress.push({...p}),false,saved);
