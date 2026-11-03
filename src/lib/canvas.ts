@@ -1,4 +1,6 @@
 import { formatDateBR } from './calendar';
+import { getChartIndex } from './chartIndex';
+import { ResourceCache } from './resourceCache';
 import type { ChartWeek, Item, Kind, StudioSettings } from './types';
 
 export const palettes = {
@@ -8,83 +10,59 @@ export const palettes = {
   aurora: ['#2dd4bf', '#60a5fa', '#c084fc', '#34d399', '#f472b6', '#facc15', '#818cf8', '#fb923c'],
 };
 
-const imageCache = new Map<string, CanvasImageSource>();
+const disposeImage=(image:CanvasImageSource)=>{if(typeof (image as ImageBitmap).close==='function')(image as ImageBitmap).close();else if(image instanceof HTMLImageElement)image.src='';};
+const imageCache = new ResourceCache<CanvasImageSource>(48,disposeImage);
+const pendingImages=new Map<string,Promise<CanvasImageSource|null>>();
+let activeImages=0;
+const imageQueue:Array<()=>void>=[];
 
 export function cacheImageUrl(url: string): Promise<CanvasImageSource | null> {
   if (!url) return Promise.resolve(null);
   const hit = imageCache.get(url);
   if (hit) return Promise.resolve(hit);
-  return new Promise(resolve => {
+  const pending=pendingImages.get(url);
+  if(pending)return pending;
+  const promise=new Promise<CanvasImageSource|null>(resolve=>{
+  const load=()=>{
+    activeImages++;
     const img = new Image();
     img.crossOrigin = 'anonymous';
     img.decoding = 'async';
-    const timeout = setTimeout(() => resolve(null), 6000);
+    let finished=false;
+    const finish=(image:CanvasImageSource|null)=>{
+      if(finished){if(image)disposeImage(image);return;}
+      finished=true;clearTimeout(timeout);pendingImages.delete(url);activeImages--;img.onload=null;img.onerror=null;
+      if(image)imageCache.set(url,image);else img.src='';
+      resolve(image);imageQueue.shift()?.();
+    };
+    const timeout = setTimeout(() => finish(null), 6000);
     img.onload = async () => {
-      clearTimeout(timeout);
       try {
         if (typeof createImageBitmap === 'function') {
-          const bmp = await createImageBitmap(img);
-          imageCache.set(url, bmp);
-          resolve(bmp);
+          const scale=Math.min(1,512/Math.max(img.naturalWidth,img.naturalHeight));
+          const bmp = await createImageBitmap(img,{resizeWidth:Math.max(1,Math.round(img.naturalWidth*scale)),resizeHeight:Math.max(1,Math.round(img.naturalHeight*scale)),resizeQuality:'medium'});
+          finish(bmp);
           return;
         }
       } catch {
         // Fallback to HTMLImageElement
       }
-      imageCache.set(url, img);
-      resolve(img);
+      finish(img);
     };
     img.onerror = () => {
-      clearTimeout(timeout);
-      resolve(null);
+      finish(null);
     };
     img.src = url;
+  };
+  if(activeImages<4)load();else imageQueue.push(load);
   });
+  pendingImages.set(url,promise);
+  return promise;
 }
 
 export async function prepareImages(items: Array<Pick<Item, 'image'>>) {
-  await Promise.all(items.map(item => cacheImageUrl(item.image)));
-}
-
-interface IndexedCharts {
-  rankMaps: Array<Map<string, number>>;
-  playMaps: Array<Map<string, number>>;
-  cumPlayMaps: Array<Map<string, number>>;
-  hiatusMaps: Array<Map<string, number>>;
-}
-
-const chartIndexCache = new WeakMap<ChartWeek[], IndexedCharts>();
-
-function getChartIndex(charts: ChartWeek[]): IndexedCharts {
-  const cached = chartIndexCache.get(charts);
-  if (cached) return cached;
-  const running = new Map<string, number>();
-  const rankMaps: Array<Map<string, number>> = [];
-  const playMaps: Array<Map<string, number>> = [];
-  const cumPlayMaps: Array<Map<string, number>> = [];
-  const hiatusMaps: Array<Map<string, number>> = [];
-
-  for (const w of charts) {
-    const rMap = new Map<string, number>();
-    const pMap = new Map<string, number>();
-    const hMap = new Map<string, number>();
-    if (w.status === 'loaded') {
-      for (const e of w.entries) {
-        rMap.set(e.id, e.rank);
-        pMap.set(e.id, e.plays);
-        if (e.hiatusWeeks && e.hiatusWeeks > 0) hMap.set(e.id, e.hiatusWeeks);
-        running.set(e.id, (running.get(e.id) ?? 0) + e.plays);
-      }
-    }
-    rankMaps.push(rMap);
-    playMaps.push(pMap);
-    cumPlayMaps.push(new Map(running));
-    hiatusMaps.push(hMap);
-  }
-
-  const built = { rankMaps, playMaps, cumPlayMaps, hiatusMaps };
-  chartIndexCache.set(charts, built);
-  return built;
+  const urls=[...new Set(items.map(item=>item.image).filter(Boolean))].slice(0,48);
+  await Promise.all(urls.map(cacheImageUrl));
 }
 
 function roundRectPath(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
@@ -111,7 +89,7 @@ export function drawChart(ctx: CanvasRenderingContext2D, width: number, height: 
   ctx.font = `500 ${width < 540 ? 8 : 10}px ${UI_FONT}`;
   ctx.textAlign = 'right';
   ctx.fillStyle = options.dark === false || options.settings.canvasTheme === 'light' ? '#64748b' : '#94a3b8';
-  ctx.fillText('William Santos · LastChart', width - 14, height - 6);
+  ctx.fillText('Feito com ❤️ por William Santos', width - 14, height - 6);
   ctx.restore();
 }
 
@@ -148,10 +126,10 @@ function drawChartFrame(ctx: CanvasRenderingContext2D, width: number, height: nu
   let badgeLeftEdge = width - padX;
   if (charts[current]) {
     const badgeText = ultraCompact
-      ? `S.${charts[current].number} · ${charts[current].label}`
+      ? `${charts[current].unit === 'day' ? 'D.' : charts[current].unit === 'month' ? 'M.' : charts[current].unit === 'year' ? 'A.' : 'S.'}${charts[current].number} · ${charts[current].label}`
       : compact
-        ? `SEM. ${charts[current].number} · ${charts[current].label}`
-        : `SEM. ${charts[current].number}  ·  ${charts[current].label}`;
+        ? `${charts[current].unit === 'day' ? 'DIA' : charts[current].unit === 'month' ? 'MÊS' : charts[current].unit === 'year' ? 'ANO' : 'SEM.'} ${charts[current].number} · ${charts[current].label}`
+        : `${charts[current].unit === 'day' ? 'DIA' : charts[current].unit === 'month' ? 'MÊS' : charts[current].unit === 'year' ? 'ANO' : 'SEM.'} ${charts[current].number}  ·  ${charts[current].label}`;
     ctx.font = `600 ${ultraCompact ? 8.5 : compact ? 9.5 : 11}px ${UI_FONT}`;
     const tw = ctx.measureText(badgeText).width;
     const bw = tw + (compact ? 14 : 22);
@@ -249,7 +227,7 @@ function drawChartFrame(ctx: CanvasRenderingContext2D, width: number, height: nu
   const x = (i: number) => left + (i - origin) * spacing;
   const endpoint = Math.min(edge, x(position));
   const first = Math.max(0, Math.floor(origin));
-  const { rankMaps, hiatusMaps } = getChartIndex(charts);
+  const { rankMaps, hiatusMaps } = getChartIndex(charts, items);
 
   const cardRows: Array<{ item: Item; color: string; rank: number; cy: number; prev?: number; iy: number; hiatus?: number }> = [];
   const enableGlow = !reduced && items.length <= 18;
@@ -313,15 +291,15 @@ function drawChartFrame(ctx: CanvasRenderingContext2D, width: number, height: nu
     const statusLabel =
       curWeek.status === 'missing'
         ? compact
-          ? 'Semana não sincronizada (sem posições fictícias)'
-          : 'SEMANA NÃO SINCRONIZADA · NENHUMA POSIÇÃO FICTÍCIA GERADA'
+          ? 'Período não sincronizado (sem posições fictícias)'
+          : 'PERÍODO NÃO SINCRONIZADO · NENHUMA POSIÇÃO FICTÍCIA GERADA'
         : curWeek.plays === 0
           ? compact
-            ? 'Last.fm vazio nesta semana (0 plays)'
-            : 'SEMANA VAZIA NO LAST.FM · 0 REPRODUÇÕES REGISTRADAS'
+            ? 'Last.fm vazio neste período (0 plays)'
+            : 'PERÍODO VAZIO NO LAST.FM · 0 REPRODUÇÕES REGISTRADAS'
           : compact
-            ? 'Competidores fora do chart nesta semana (OUT)'
-            : `COMPETIDORES FORA DO TOP ${s.top} NESTA SEMANA (0 PLAYS / OUT)`;
+            ? 'Competidores fora do chart neste período (OUT)'
+            : `COMPETIDORES FORA DO TOP ${s.top} NESTE PERÍODO (0 PLAYS / OUT)`;
     ctx.save();
     ctx.font = `600 ${compact ? 9.5 : 11}px ${UI_FONT}`;
     const msgW = Math.min(width - padX * 2, ctx.measureText(statusLabel).width + 26);
@@ -531,7 +509,7 @@ function drawBarRace(
   },
 ) {
   const { charts, items, s, current, fraction, dark, fg, muted, compact, padX } = params;
-  const { playMaps, cumPlayMaps } = getChartIndex(charts);
+  const { playMaps, cumPlayMaps } = getChartIndex(charts, items, s.barMetric !== 'weekly');
   const maps = s.barMetric === 'weekly' ? playMaps : cumPlayMaps;
   const paletteColors = palettes[s.palette] ?? palettes.neon;
   const ease = fraction * fraction * (3 - 2 * fraction);
@@ -587,16 +565,16 @@ function drawBarRace(
     ctx.fillText(String(charts[current].year), width - padX, bottom - (compact ? 14 : 20));
     ctx.fillStyle = dark ? 'rgba(255,255,255,0.16)' : 'rgba(15,23,42,0.18)';
     ctx.font = `700 ${compact ? 11 : 13}px ${UI_FONT}`;
-    ctx.fillText(s.barMetric === 'weekly' ? 'PLAYS NA SEMANA' : 'PLAYS ACUMULADOS', width - padX, bottom);
+    ctx.fillText(s.barMetric === 'weekly' ? 'PLAYS NO PERÍODO' : 'PLAYS ACUMULADOS', width - padX, bottom);
     ctx.restore();
   }
 
   if (charts[current] && active.length === 0) {
     const emptyMsg =
       charts[current].status === 'missing'
-        ? 'Semana não sincronizada — nenhuma posição inventada'
+        ? 'Período não sincronizado — nenhuma posição inventada'
         : charts[current].plays === 0
-          ? 'Last.fm sem scrobbles nesta semana (0 plays)'
+          ? 'Last.fm sem scrobbles neste período (0 plays)'
           : 'Competidores sem reproduções registradas até esta semana (0 plays)';
     ctx.save();
     ctx.font = `600 ${compact ? 10 : 11.5}px ${UI_FONT}`;
@@ -869,7 +847,7 @@ export async function renderWeeklyShareCard(week: ChartWeek, kind: Kind, usernam
 
   ctx.fillStyle = '#64748b';
   ctx.font = `600 19px ${UI_FONT}`;
-  ctx.fillText('Sexta a quinta · LastChart Studio Pro · Criado por William Santos', 68, H - 36);
+  ctx.fillText('Sexta a quinta · Feito com ❤️ por William Santos', 68, H - 36);
 
   return new Promise(resolve => canvas.toBlob(b => resolve(b), 'image/png'));
 }

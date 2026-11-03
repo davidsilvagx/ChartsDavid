@@ -30,7 +30,7 @@ export async function synchronize(
   const cached = new Map((await readWeeks(settings)).map(w => [w.week.id, w]));
   const todo = selected.filter(w => force || !cached.has(w.id) || !isLastfmWeekSynced(cached.get(w.id)!) ||
     (cached.get(w.id)!.cutoff < w.end && w.end * 1000 <= now) ||
-    w.end * 1000 > now - 14 * 86400000);
+    w.end * 1000 > now - 14 * 86400000).sort((a, b) => b.start - a.start);
 
   let completed = 0;
   let pages = 0;

@@ -12,26 +12,33 @@ export function ChartCanvas({
   canvasRef,
   handleRef,
   height = 380,
+  width,
   className = '',
 }: {
   options: DrawOptions;
   canvasRef?: RefObject<HTMLCanvasElement | null>;
   handleRef?: Ref<ChartCanvasHandle>;
   height?: number | string;
+  width?: number;
   className?: string;
 }) {
   const internal = useRef<HTMLCanvasElement>(null);
   const ref = canvasRef ?? internal;
   const optionsRef = useRef(options);
+  const visibleRef = useRef(true);
+  const imagePeriodRef = useRef(-1);
+  const paintCountRef = useRef(0);
   optionsRef.current = options;
 
   const paint = (pos = optionsRef.current.position) => {
     const canvas = ref.current;
     if (!canvas) return;
+    if(document.hidden||!visibleRef.current)return;
     const width = canvas.clientWidth;
     const h = canvas.clientHeight;
     if (!width || !h) return;
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const mobile = window.matchMedia('(pointer: coarse)').matches || window.innerWidth <= 860;
+    const dpr = Math.min(window.devicePixelRatio || 1, mobile ? 1.5 : 2);
     const targetW = Math.round(width * dpr);
     const targetH = Math.round(h * dpr);
     if (canvas.width !== targetW || canvas.height !== targetH) {
@@ -42,6 +49,14 @@ export function ChartCanvas({
     if (!ctx) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     drawChart(ctx, width, h, { ...optionsRef.current, position: pos });
+    if(import.meta.env.DEV)canvas.dataset.previewPaints=String(++paintCountRef.current);
+    const period=Math.floor(pos);
+    if(period!==imagePeriodRef.current){
+      imagePeriodRef.current=period;
+      const ids=new Set(optionsRef.current.items.map(i=>i.id));
+      const active=optionsRef.current.charts[period]?.entries.filter(e=>ids.has(e.id)).slice(0,16)??[];
+      if(active.length)void prepareImages(active).then(()=>{if(ref.current===canvas)paint();});
+    }
   };
 
   useImperativeHandle(handleRef, () => ({
@@ -56,11 +71,19 @@ export function ChartCanvas({
     const canvas = ref.current;
     if (!canvas) return;
     let alive = true;
+    imagePeriodRef.current=-1;
     const render = () => {
       if (alive) paint();
     };
     const observer = new ResizeObserver(render);
     observer.observe(canvas);
+    const visibility = new IntersectionObserver(entries => {
+      visibleRef.current = entries[0]?.isIntersecting ?? true;
+      if(visibleRef.current)render();
+    });
+    visibility.observe(canvas);
+    const onVisible = () => {if(!document.hidden)render();};
+    document.addEventListener('visibilitychange',onVisible);
     render();
 
     const items = optionsRef.current.items;
@@ -87,6 +110,8 @@ export function ChartCanvas({
     return () => {
       alive = false;
       observer.disconnect();
+      visibility.disconnect();
+      document.removeEventListener('visibilitychange',onVisible);
     };
   }, [ref, options.items, height]);
 
@@ -98,7 +123,7 @@ export function ChartCanvas({
     <canvas
       ref={ref}
       className={`history-canvas ${className}`.trim()}
-      style={height !== undefined ? { height } : undefined}
+      style={{height,width}}
       role="img"
       aria-label={
         options.settings.mode === 'bars'

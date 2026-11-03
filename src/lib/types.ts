@@ -37,6 +37,7 @@ export interface Scrobble {
 }
 
 export interface Week {
+  unit?: 'day' | 'week' | 'month' | 'year';
   id: string;
   number: number;
   start: number;
@@ -112,6 +113,7 @@ export interface SyncProgress {
 }
 
 export interface StudioSettings {
+  previewFps?: 30 | 60;
   mode: 'lines' | 'bars';
   barMetric: 'cumulative' | 'weekly';
   barCount: number;
