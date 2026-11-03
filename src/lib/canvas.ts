@@ -539,8 +539,8 @@ function drawBarRace(
   const active = scored
     .filter(x => x.v0 > 0 || x.v1 > 0)
     .map(x => {
-      const p0 = x.v0 > 0 ? Math.min(maxBars + 0.8, r0.get(x.item.id) ?? maxBars + 0.8) : maxBars + 0.8;
-      const p1 = x.v1 > 0 ? Math.min(maxBars + 0.8, r1.get(x.item.id) ?? maxBars + 0.8) : maxBars + 0.8;
+      const p0 = x.v0 > 0 && (r0.get(x.item.id) ?? maxBars) < maxBars ? r0.get(x.item.id)! : maxBars + 0.8;
+      const p1 = x.v1 > 0 && (r1.get(x.item.id) ?? maxBars) < maxBars ? r1.get(x.item.id)! : maxBars + 0.8;
       return { ...x, visualSlot: p0 + (p1 - p0) * ease, liveRank: (r1.get(x.item.id) ?? 0) + 1 };
     })
     .filter(x => x.visualSlot < maxBars + 0.35 && x.value > 0.01)
@@ -593,12 +593,14 @@ function drawBarRace(
     ctx.save();
     ctx.globalAlpha = opacity;
 
-    const dispRank = Math.min(maxBars, Math.round(row.visualSlot) + 1);
-    ctx.fillStyle = dispRank === 1 ? '#f5c451' : muted;
-    ctx.font = `700 ${(compact ? 10 : 12) * rowScale}px ${UI_FONT}`;
-    ctx.textAlign = 'right';
-    ctx.fillText(`#${dispRank}`, barStartX - 8, cy + 4);
-    ctx.textAlign = 'left';
+    const dispRank = Math.round(row.visualSlot) + 1;
+    if (dispRank <= maxBars) {
+      ctx.fillStyle = dispRank === 1 ? '#f5c451' : muted;
+      ctx.font = `700 ${(compact ? 10 : 12) * rowScale}px ${UI_FONT}`;
+      ctx.textAlign = 'right';
+      ctx.fillText(`#${dispRank}`, barStartX - 8, cy + 4);
+      ctx.textAlign = 'left';
+    }
 
     const w = Math.max(barH + 8, (row.value / maxVal) * barMaxW);
     const grad = ctx.createLinearGradient(barStartX, 0, barStartX + w, 0);
