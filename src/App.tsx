@@ -60,12 +60,12 @@ import {
   type SyncScope,
   studioDefaults,
 } from './lib/types';
-import { validateCalendar } from './lib/calendar';
+import { formatDateBR, parseDateBR, validateCalendar } from './lib/calendar';
 import { computeRecords, getCertification, getItemAuditHistory, selectScrobblesForFilter } from './lib/charts';
 import { renderWeeklyShareCard, palettes } from './lib/canvas';
 import { resolveCatalogMedia } from './lib/catalog';
 import { backupJSON, chartCSV, download, parseBackup, shareCardPDF } from './lib/export';
-import { importWeeks } from './lib/storage';
+import { importWeeks, isLastfmWeekSynced } from './lib/storage';
 import {
   AmbientBackdrop,
   Cover,
@@ -173,7 +173,11 @@ function App() {
   const recent = useMemo(() => charts.filter(w => w.start <= (selected?.start ?? Infinity)).slice(-8), [charts, selected?.start]);
   const chartItems = useMemo(() => selected?.entries.slice(0, 5) ?? [], [selected]);
   const totalScrobbles = sourceCounts[sourceFilter];
-  const recentEightLoaded = useMemo(() => charts.slice(-8).filter(w => w.status === 'loaded').length, [charts]);
+  const lastfmLoaded = useMemo(() => cached.filter(isLastfmWeekSynced).length, [cached]);
+  const recentEightLoaded = useMemo(() => {
+    const saved = new Set(cached.filter(isLastfmWeekSynced).map(w => w.week.id));
+    return weeks.slice(-8).filter(w => saved.has(w.id)).length;
+  }, [weeks, cached]);
   const newEntries = selected?.entries.filter(e => e.change === 'NEW').length ?? 0;
   const largestRise = selected?.entries
     .filter(e => typeof e.change === 'number' && e.change > 0)
@@ -528,7 +532,7 @@ function App() {
               <ProfileAvatar profile={profile} avatar={settings.avatar} className="avatar" />
               <span className="profile-meta">
                 <strong>{profile?.name ?? settings.user ?? 'Perfil'}</strong>
-                <small>{loaded.length} sem. salvas</small>
+                <small>{cached.length} sem. salvas</small>
               </span>
             </button>
           </div>
@@ -562,6 +566,12 @@ function App() {
           )}
           {progress && page !== 'settings' && (
             <SyncProgressCard progress={progress} onCancel={data.cancel} />
+          )}
+          {computing && !progress && (
+            <div className="sync-status" role="status" aria-live="polite">
+              <MusicLoader size="md" />
+              <div><strong>Atualizando seus charts…</strong><small>Organizando as semanas salvas e calculando posições e recordes.</small></div>
+            </div>
           )}
 
           <section className={`hero-banner ${page !== 'settings' && heroArtwork ? 'has-ambient' : ''}`}>
@@ -617,10 +627,10 @@ function App() {
                   type="button"
                   className={`button primary sync-cta ${progress ? 'is-loading' : ''}`}
                   disabled={!!progress || !online}
-                  onClick={() => data.sync('recent')}
+                  onClick={() => data.sync(lastfmLoaded < weeks.length ? 'all' : 'recent')}
                 >
                   {progress ? <MusicLoader size="sm" tone="ink" /> : <History size={17} />}
-                  <span>{progress ? 'Sincronizando…' : cached.length ? 'Sincronizar Last.fm' : 'Conectar Last.fm'}</span>
+                  <span>{progress ? 'Sincronizando…' : lastfmLoaded < weeks.length ? cached.length ? 'Continuar histórico' : 'Conectar Last.fm e baixar histórico' : 'Atualizar Last.fm'}</span>
                 </button>
                 <button
                   type="button"
@@ -662,7 +672,7 @@ function App() {
               onNotice={data.setNotice}
               onExport={exportBackup}
               onImport={loadBackup}
-              loaded={cached.length}
+              loaded={lastfmLoaded}
               recentEightLoaded={recentEightLoaded}
               total={weeks.length}
               duplicates={cached.reduce((n, w) => n + w.duplicates, 0)}
@@ -707,7 +717,7 @@ function App() {
                       <span className="week-picker-text">
                         <strong>Sem. {selected.number}</strong>
                         <span>
-                          {selected.label} · {selected.year}
+                          {selected.label}
                           {selected.status === 'missing' ? ' (não baixada)' : selected.partial ? ' (atual)' : ''}
                         </span>
                       </span>
@@ -718,7 +728,7 @@ function App() {
                       >
                         {[...filtered].reverse().map(w => (
                           <option key={w.id} value={w.id}>
-                            Sem. {w.number} · {w.label}/{w.year}
+                            Sem. {w.number} · {w.label}
                             {w.status === 'missing' ? ' · não baixada' : ''}
                           </option>
                         ))}
@@ -943,11 +953,11 @@ function App() {
                               key={w.id}
                               className={`pulse-col ${isSel ? 'active' : ''} ${w.status === 'missing' ? 'missing' : ''}`}
                               onClick={() => setWeekId(w.id)}
-                              title={`Sem. ${w.number} (${w.label}/${w.year}): ${w.status === 'loaded' ? `${w.plays} plays` : 'não baixada'}`}
-                              aria-label={`Semana ${w.number}, ${w.label} de ${w.year}, ${w.status === 'loaded' ? `${w.plays} reproduções` : 'não sincronizada'}`}
+                              title={`Sem. ${w.number} (${w.label}): ${w.status === 'loaded' ? `${w.plays} plays` : 'não baixada'}`}
+                              aria-label={`Semana ${w.number}, ${w.label}, ${w.status === 'loaded' ? `${w.plays} reproduções` : 'não sincronizada'}`}
                             >
                               <span className="pulse-bar" style={{ height: `${pct}%` }} />
-                              <small>{w.id.slice(5, 7)}/{w.id.slice(2, 4)}</small>
+                              <small>{formatDateBR(w.id)}</small>
                             </button>
                           );
                         })}
@@ -993,7 +1003,7 @@ function App() {
                                   type="button"
                                   className={`button primary ${progress ? 'is-loading' : ''}`}
                                   disabled={!!progress}
-                                  onClick={() => data.sync('recent')}
+                                  onClick={() => data.sync(lastfmLoaded < weeks.length ? 'all' : 'recent')}
                                 >
                                   {progress ? <MusicLoader size="sm" tone="ink" /> : <History size={16} />}
                                   <span>{progress ? 'Sincronizando…' : 'Sincronizar Last.fm'}</span>
@@ -1081,7 +1091,7 @@ function App() {
                       </h2>
                       <p>
                         {chartsTab === 'weekly'
-                          ? `Semana ${selected?.number ?? '—'} · ${selected?.label ?? ''} · ${selected?.year ?? ''}${selected?.partial ? ' · Em andamento' : ''}`
+                          ? `Semana ${selected?.number ?? '—'} · ${selected?.label ?? ''}${selected?.partial ? ' · Em andamento' : ''}`
                           : `Acumulado nas semanas sincronizadas (${year === 'all' ? 'Todo histórico' : year})`}
                       </p>
                     </div>
@@ -1329,7 +1339,7 @@ function App() {
                   <span>Processando charts em Web Worker…</span>
                 </>
               ) : (
-                `${loaded.length} de ${weeks.length} semanas carregadas`
+                `${cached.length} de ${weeks.length} semanas salvas no aparelho`
               )}
               <span className="footer-dot">·</span>
               <button type="button" className="text-button" onClick={() => setHelp(true)}>
@@ -1411,7 +1421,7 @@ function App() {
           <div className="prose">
             <h3>Calendário oficial ZeroCharts</h3>
             <p>
-              Toda semana inicia na sexta-feira às 00:00 e encerra na quinta-feira às 23:59:59 no fuso horário configurado (padrão UTC, marco inicial 24/06/2016). Usamos a API Temporal para respeitar anos bissextos e mudanças de horário de verão.
+              Toda semana inicia na sexta-feira às 00:00 e encerra na quinta-feira às 23:59:59 no fuso horário configurado (padrão UTC, marco inicial 24/06/16). Usamos a API Temporal para respeitar anos bissextos e mudanças de horário de verão.
             </p>
             <h3>Fidelidade e lacunas</h3>
             <p>
@@ -1812,10 +1822,10 @@ function Detail({
                 key={r.week}
                 title={
                   r.rank === undefined
-                    ? `Sem. ${r.number} (${r.label}/${r.year}): não sincronizada`
+                    ? `Sem. ${r.number} (${r.label}): não sincronizada`
                     : r.rank === null
-                      ? `Sem. ${r.number} (${r.label}/${r.year}): fora do Top 100 (${r.plays ?? 0} plays)`
-                      : `Sem. ${r.number} (${r.label}/${r.year}): #${r.rank} (${r.plays ?? 0} plays)`
+                      ? `Sem. ${r.number} (${r.label}): fora do Top 100 (${r.plays ?? 0} plays)`
+                      : `Sem. ${r.number} (${r.label}): #${r.rank} (${r.plays ?? 0} plays)`
                 }
                 className={
                   r.rank === 1
@@ -1827,7 +1837,7 @@ function Detail({
                         : 'absent'
                 }
               >
-                <small>{r.week.slice(5).split('-').reverse().join('/')}</small>
+                <small>{formatDateBR(r.week)}</small>
                 <strong>{r.rank === undefined ? '?' : r.rank ? `#${r.rank}` : 'OUT'}</strong>
                 <em className="run-plays">{r.rank === undefined ? 's/ dados' : `${r.plays ?? 0}p`}</em>
               </span>
@@ -1906,6 +1916,7 @@ function SettingsPage({
   onInstall: () => void;
 }) {
   const [draft, setDraft] = useState(settings);
+  const [dateDraft, setDateDraft] = useState(() => formatDateBR(settings.startDate));
   const [syncYear, setSyncYear] = useState<number>(years[0] ?? 2026);
   const [aliasKind, setAliasKind] = useState<Kind>('tracks');
   const [aliasArtist, setAliasArtist] = useState('');
@@ -1927,6 +1938,7 @@ function SettingsPage({
   const isRevalidating = !!progress && progress.scope === 'all' && !!progress.force;
 
   useEffect(() => {
+    setDateDraft(formatDateBR(settings.startDate));
     setDraft(d => ({
       ...d,
       user: settings.user,
@@ -1942,7 +1954,8 @@ function SettingsPage({
   const save = (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      validateCalendar(draft.startDate, draft.timezone);
+      const startDate = parseDateBR(dateDraft);
+      validateCalendar(startDate, draft.timezone);
       if (!/^[\w.-]{1,100}$/.test(draft.user.trim())) {
         throw new Error('Informe um nome de usuário Last.fm válido, sem o endereço do site.');
       }
@@ -1952,7 +1965,7 @@ function SettingsPage({
       setSettings({
         ...settings,
         user: draft.user.trim(),
-        startDate: draft.startDate,
+        startDate,
         timezone: draft.timezone,
         apiKey: draft.apiKey.trim(),
         deduplicate: draft.deduplicate,
@@ -2028,7 +2041,11 @@ function SettingsPage({
             <div className="form-two">
               <label>
                 Marco inicial (Sexta-feira)
-                <input type="date" value={draft.startDate} onChange={e => change('startDate', e.target.value)} required />
+                <input type="text" inputMode="numeric" placeholder="dd/mm/aa" value={dateDraft} onChange={e => {
+                  const digits = e.target.value.replace(/\D/g, '').slice(0, 8);
+                  setDateDraft(digits.replace(/^(\d{2})(\d)/, '$1/$2').replace(/^(\d{2}\/\d{2})(\d)/, '$1/$2'));
+                }} required aria-describedby="calendar-format" />
+                <small id="calendar-format">dd/mm/aa · exemplo: 24/06/16</small>
               </label>
               <label>
                 Fuso horário (IANA)
@@ -2161,7 +2178,7 @@ function SettingsPage({
               <p>
                 {loaded > 0
                   ? `${number(loaded)} semanas salvas localmente · Janela recente: ${recentPct}% pronta`
-                  : 'Baixe suas semanas recentes ou sincronize todo o histórico desde 2016.'}
+                  : 'Baixe todo o histórico para preencher seu arquivo de charts.'}
               </p>
             </div>
           </div>
@@ -2171,7 +2188,7 @@ function SettingsPage({
             <div className="archive-coverage-grid">
               <div className="coverage-card">
                 <div className="coverage-top">
-                  <span>Últimas 8 semanas</span>
+                  <span>Cobertura recente</span>
                   <strong>{recentPct}%</strong>
                 </div>
                 <div className="musical-progress-track">
@@ -2184,20 +2201,20 @@ function SettingsPage({
 
               <div className="coverage-card">
                 <div className="coverage-top">
-                  <span>Arquivo 2016–hoje</span>
+                  <span>Arquivo completo</span>
                   <strong>{archivePct}%</strong>
                 </div>
                 <div className="musical-progress-track">
                   <span className="musical-progress-fill" style={{ width: `${archivePct}%` }} />
                 </div>
                 <small>
-                  {number(loaded)} de {number(total)} semanas totais no IndexedDB
+                  {number(loaded)} de {number(total)} semanas salvas no aparelho
                 </small>
               </div>
             </div>
 
             <p className="muted small-text">
-              Download em lotes paralelos otimizados com salvamento em tempo real no IndexedDB. Você pode pausar e continuar quando quiser.
+              A cobertura acima mostra o que está salvo no aparelho, não o progresso do download. “Atualizar recentes” baixa só 8 semanas. Use “Continuar histórico” para preencher todas; você pode pausar e retomar.
             </p>
 
             <div className="sync-grid-btns">
@@ -2208,7 +2225,7 @@ function SettingsPage({
                 onClick={() => onSync('recent')}
               >
                 {isSyncingRecent ? <MusicLoader size="sm" tone="ink" /> : <History size={16} />}
-                <span>{isSyncingRecent ? 'Sincronizando últimas 8 semanas…' : 'Sincronizar últimas 8 semanas'}</span>
+                <span>{isSyncingRecent ? 'Atualizando recentes…' : 'Atualizar recentes · 8 semanas'}</span>
               </button>
               <div className="year-sync-row">
                 <select
@@ -2240,7 +2257,7 @@ function SettingsPage({
                 onClick={() => onSync('all')}
               >
                 {isSyncingAll ? <MusicLoader size="sm" /> : <ArrowDownToLine size={16} />}
-                <span>{isSyncingAll ? 'Baixando histórico completo…' : 'Baixar todo o histórico (2016–hoje)'}</span>
+                <span>{isSyncingAll ? 'Baixando histórico completo…' : loaded < total ? `Continuar histórico · ${number(total - loaded)} semanas` : 'Atualizar histórico completo'}</span>
               </button>
               <button
                 type="button"
