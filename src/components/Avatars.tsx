@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyboard
 import { Check, SlidersHorizontal, Sparkles } from 'lucide-react';
 import type { Profile } from '../lib/types';
 import { Modal } from './UI';
+import { POP_AVATARS } from './PopAvatars';
 
 export interface AvatarPreset {
   id: string;
@@ -12,6 +13,7 @@ export interface AvatarPreset {
 }
 
 export const AVATAR_PRESETS: AvatarPreset[] = [
+  ...POP_AVATARS,
   {
     id: 'vinyl-gold',
     name: 'Vinil Ouro',
@@ -371,7 +373,7 @@ export const AVATAR_PRESETS: AvatarPreset[] = [
 
 export function PresetIllustration({ id }: { id: string }) {
   const uid = useId().replace(/[^a-zA-Z0-9_-]/g, '');
-  const preset = AVATAR_PRESETS.find(a => a.id === id) ?? AVATAR_PRESETS[0];
+  const preset = AVATAR_PRESETS.find(a => a.id === id) ?? AVATAR_PRESETS.find(a => a.id === 'vinyl-gold')!;
   return (
     <svg viewBox="0 0 80 80" aria-hidden="true" focusable="false">
       {preset.render(uid)}
