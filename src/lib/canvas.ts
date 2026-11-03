@@ -105,6 +105,16 @@ export interface DrawOptions {
 const UI_FONT = `'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif`;
 
 export function drawChart(ctx: CanvasRenderingContext2D, width: number, height: number, options: DrawOptions) {
+  drawChartFrame(ctx, width, height, options);
+  ctx.save();
+  ctx.font = `500 ${width < 540 ? 8 : 10}px ${UI_FONT}`;
+  ctx.textAlign = 'right';
+  ctx.fillStyle = options.dark === false || options.settings.canvasTheme === 'light' ? '#64748b' : '#94a3b8';
+  ctx.fillText('William Santos · LastChart', width - 14, height - 6);
+  ctx.restore();
+}
+
+function drawChartFrame(ctx: CanvasRenderingContext2D, width: number, height: number, options: DrawOptions) {
   const { charts, items, settings: s, title = s.mode === 'bars' ? 'CORRIDA DE REPRODUÇÕES' : 'CHART HISTORY', reduced = false } = options;
   const dark = options.dark ?? (s.canvasTheme !== 'light');
   const position = Math.max(0, Math.min(options.position, Math.max(0, charts.length - 1)));
@@ -728,6 +738,20 @@ export async function renderWeeklyShareCard(week: ChartWeek, kind: Kind, usernam
   ctx.fillStyle = glow;
   ctx.fillRect(0, 0, W, H);
 
+  const artwork = top10[0]?.image ? imageCache.get(top10[0].image) : undefined;
+  if (artwork) {
+    ctx.save();
+    ctx.globalAlpha = 0.38;
+    ctx.filter = 'blur(28px)';
+    ctx.drawImage(artwork, -50, -180, W + 100, W + 100);
+    ctx.restore();
+    const fade = ctx.createLinearGradient(0, 0, 0, 850);
+    fade.addColorStop(0, 'rgba(7,11,18,0.25)');
+    fade.addColorStop(1, '#080c14');
+    ctx.fillStyle = fade;
+    ctx.fillRect(0, 0, W, H);
+  }
+
   // Decorative concentric rings
   ctx.strokeStyle = 'rgba(255,255,255,0.05)';
   ctx.lineWidth = 1.5;
@@ -844,7 +868,7 @@ export async function renderWeeklyShareCard(week: ChartWeek, kind: Kind, usernam
 
   ctx.fillStyle = '#64748b';
   ctx.font = `600 19px ${UI_FONT}`;
-  ctx.fillText('Contagem oficial Sexta 00:00 — Quinta 23:59  ·  LastChart Studio Pro', 68, H - 36);
+  ctx.fillText('Sexta a quinta · LastChart Studio Pro · Criado por William Santos', 68, H - 36);
 
   return new Promise(resolve => canvas.toBlob(b => resolve(b), 'image/png'));
 }

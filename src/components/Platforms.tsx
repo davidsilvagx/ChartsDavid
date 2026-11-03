@@ -483,7 +483,7 @@ export function PlatformsHub({
             </div>
             <p>
               Importe seu histórico do Google Takeout (<code>watch-history.json</code> /{' '}
-              <code>histórico-de-visualização.json</code> ou CSV) ou conecte via Google OAuth.
+              <code>histórico-de-visualização.json</code> ou CSV). O login Google identifica sua conta; o histórico precisa do Takeout.
             </p>
           </div>
         </div>
@@ -511,7 +511,7 @@ export function PlatformsHub({
             onClick={() => setShowYtOAuth(v => !v)}
           >
             <SlidersHorizontal size={14} />
-            <span>Google OAuth / Scrobbler</span>
+            <span>Conta Google / Importação</span>
           </button>
 
           {(counts.ytmusic > 0 || ytAcc) && (

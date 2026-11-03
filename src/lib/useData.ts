@@ -98,10 +98,9 @@ export function useData(kind: Kind) {
         }
         const ytResult = await completeYouTubeCallbackIfPresent();
         if (ytResult && active) {
-          const merged = await mergePlatformScrobbles(settings, ytResult.scrobbles, 'ytmusic');
           setRevision(v => v + 1);
           setNotice(
-            `YouTube Music conectado (${ytResult.account.displayName}) · ${merged.addedPlays} faixas musicais sincronizadas.`,
+            `Conta Google conectada (${ytResult.account.displayName}). Importe o Takeout para adicionar reproduções com datas reais; o login não fornece histórico.`,
           );
         }
       } catch (e) {
