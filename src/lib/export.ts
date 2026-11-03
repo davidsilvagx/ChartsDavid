@@ -55,3 +55,31 @@ export function parseBackup(text: string): { settings: Settings; weeks: CachedWe
   // Profile is refetched rather than trusting arbitrary imported links or metadata.
   return { settings, weeks, profile: null };
 }
+
+/** A single-page PDF embeds the same designed card as a JPEG, preserving artwork and type. */
+export async function shareCardPDF(png: Blob): Promise<Blob> {
+  const bitmap = await createImageBitmap(png);
+  const canvas = document.createElement('canvas');
+  canvas.width = bitmap.width; canvas.height = bitmap.height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Canvas indisponível.');
+  ctx.drawImage(bitmap, 0, 0); bitmap.close();
+  const jpeg = await new Promise<Blob>((resolve, reject) => canvas.toBlob(b => b ? resolve(b) : reject(new Error('Falha ao gerar PDF.')), 'image/jpeg', .94));
+  const bytes = new Uint8Array(await jpeg.arrayBuffer());
+  const encoder = new TextEncoder();
+  const parts: Uint8Array[] = []; const offsets = [0]; let length = 0;
+  const append = (v: string | Uint8Array) => { const b = typeof v === 'string' ? encoder.encode(v) : v; parts.push(b); length += b.length; };
+  const object = (id: number, body: string) => { offsets[id] = length; append(`${id} 0 obj\n${body}\nendobj\n`); };
+  append('%PDF-1.4\n');
+  object(1, '<< /Type /Catalog /Pages 2 0 R >>');
+  object(2, '<< /Type /Pages /Kids [3 0 R] /Count 1 >>');
+  object(3, '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 540 675] /Resources << /XObject << /Card 4 0 R >> >> /Contents 5 0 R >>');
+  offsets[4] = length;
+  append(`4 0 obj\n<< /Type /XObject /Subtype /Image /Width ${canvas.width} /Height ${canvas.height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${bytes.length} >>\nstream\n`);
+  append(bytes); append('\nendstream\nendobj\n');
+  const commands = 'q 540 0 0 675 0 0 cm /Card Do Q\n';
+  object(5, `<< /Length ${encoder.encode(commands).length} >>\nstream\n${commands}endstream`);
+  const xref = length;
+  append(`xref\n0 6\n0000000000 65535 f \n${offsets.slice(1).map(n => `${String(n).padStart(10, '0')} 00000 n \n`).join('')}trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`);
+  return new Blob(parts as BlobPart[], { type: 'application/pdf' });
+}

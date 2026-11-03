@@ -483,8 +483,9 @@ async function fetchSpotifyRecentWithToken(accessToken: string): Promise<{
   ]);
   if (!meRes.ok) throw new Error('Sessão do Spotify expirada ou sem permissão.');
   const me = (await meRes.json()) as { id?: string; display_name?: string; images?: Array<{ url?: string }> };
-  const recentJson = recentRes.ok ? await recentRes.text() : '{"items":[]}';
-  const scrobbles = recentRes.ok ? parseSpotifyHistoryJSON(recentJson) : [];
+  if (!recentRes.ok) throw new Error('Spotify recusou a leitura das reproduções recentes. Verifique as permissões da conexão.');
+  const recentJson = await recentRes.text();
+  const scrobbles = JSON.parse(recentJson).items?.length ? parseSpotifyHistoryJSON(recentJson) : [];
   return {
     profile: {
       id: String(me.id ?? 'spotify'),
@@ -627,50 +628,13 @@ export async function completeYouTubeCallbackIfPresent(): Promise<{
   const saved = JSON.parse(rawState) as { state: string };
   if (saved.state !== state) throw new Error('Validação OAuth do Google/YouTube falhou.');
 
-  const [userRes, likedRes] = await Promise.all([
-    fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    }),
-    fetch(
-      'https://www.googleapis.com/youtube/v3/videos?part=snippet&myRating=like&videoCategoryId=10&maxResults=50',
-      { headers: { Authorization: `Bearer ${accessToken}` } },
-    ),
-  ]);
-  const userInfo = userRes.ok ? ((await userRes.json()) as { id?: string; name?: string; picture?: string }) : {};
+  // YouTube Data API does not expose watch history. Likes are not plays.
+  const userRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!userRes.ok) throw new Error('Não foi possível validar sua conta Google.');
+  const userInfo = await userRes.json() as { id?: string; name?: string; picture?: string };
   const scrobbles: Scrobble[] = [];
-  if (likedRes.ok) {
-    const liked = (await likedRes.json()) as {
-      items?: Array<{
-        snippet?: {
-          title?: string;
-          channelTitle?: string;
-          publishedAt?: string;
-          thumbnails?: { high?: { url?: string }; medium?: { url?: string } };
-        };
-      }>;
-    };
-    const nowSec = Math.floor(Date.now() / 1000);
-    (liked.items ?? []).forEach((it, idx) => {
-      const s = it.snippet;
-      if (!s?.title) return;
-      let track = cleanYouTubeTitle(s.title);
-      let artist = cleanYouTubeArtist(s.channelTitle ?? '');
-      if (track.includes(' - ') && (!artist || !/topic/i.test(s.channelTitle ?? ''))) {
-        const [a, ...rest] = track.split(' - ');
-        artist = a.trim();
-        track = rest.join(' - ').trim();
-      }
-      if (!artist || !track) return;
-      scrobbles.push({
-        timestamp: nowSec - idx * 240,
-        artist: artist.slice(0, 500),
-        track: track.slice(0, 500),
-        album: '',
-        image: s.thumbnails?.high?.url ?? s.thumbnails?.medium?.url ?? '',
-        source: 'ytmusic',
-      });
-    });
-  }
 
   const account: ConnectedPlatformAccount = {
     platform: 'ytmusic',

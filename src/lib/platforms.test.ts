@@ -191,3 +191,20 @@ describe('Filtros de plataforma e deduplicação de espelhamento ±180s', () => 
     expect(libLevitating?.image).toBe('dua.jpg');
   });
 });
+
+it('login Google nunca converte likes em reproduções inventadas', async () => {
+  const { vi } = await import('vitest');
+  const { completeYouTubeCallbackIfPresent } = await import('./platforms');
+  const session = new Map([['lastchart-studio:ytmusic-oauth:v1', JSON.stringify({state:'test'})]]);
+  vi.stubGlobal('window', {location:{hash:'#access_token=token&state=test',pathname:'/',search:''},history:{replaceState:vi.fn()}});
+  vi.stubGlobal('sessionStorage', {getItem:(k:string)=>session.get(k),removeItem:(k:string)=>session.delete(k)});
+  vi.stubGlobal('localStorage', {setItem:vi.fn()});
+  const request = vi.fn().mockResolvedValue(Response.json({id:'real-user',name:'Listener'}));
+  vi.stubGlobal('fetch', request);
+  try {
+    const result = await completeYouTubeCallbackIfPresent();
+    expect(result?.scrobbles).toEqual([]);
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(String(request.mock.calls[0][0])).toContain('/userinfo');
+  } finally { vi.unstubAllGlobals(); }
+});
