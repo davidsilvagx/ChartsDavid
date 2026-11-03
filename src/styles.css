@@ -4295,33 +4295,6 @@ dialog.modal.has-ambient .detail-hero .eyebrow {
   width: 100% !important;
 }
 
-.stage-expand-fab {
-  position: absolute;
-  right: 28px;
-  top: 12px;
-  z-index: 5;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  font-size: 0.72rem;
-  font-weight: 700;
-  border-radius: 99px;
-  background: rgba(5, 8, 15, 0.75);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  color: var(--text);
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.38);
-  transition: background-color 0.18s ease, transform 0.18s ease, border-color 0.18s ease;
-}
-
-.stage-expand-fab:hover {
-  background: rgba(5, 8, 15, 0.95);
-  border-color: var(--accent);
-  transform: scale(1.04);
-}
-
 .studio-preview.is-expanded {
   position: fixed !important;
   inset: 0 !important;
@@ -4332,7 +4305,7 @@ dialog.modal.has-ambient .detail-hero .eyebrow {
   height: 100dvh !important;
   max-width: none !important;
   max-height: none !important;
-  background: #05080f !important;
+  background: var(--bg) !important;
   display: flex !important;
   flex-direction: column !important;
   border: 0 !important;
@@ -4342,10 +4315,10 @@ dialog.modal.has-ambient .detail-hero .eyebrow {
 .studio-preview.is-expanded .studio-header-bar {
   padding: 12px 24px;
   flex-shrink: 0;
-  background: rgba(5, 8, 15, 0.85);
+  background: var(--surface);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid var(--line);
 }
 
 .studio-preview.is-expanded .canvas-stage {
@@ -4365,11 +4338,11 @@ dialog.modal.has-ambient .detail-hero .eyebrow {
 
 .studio-preview.is-expanded .transport {
   flex-shrink: 0;
-  background: rgba(5, 8, 15, 0.9);
+  background: var(--surface);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   padding: 12px 24px calc(12px + env(safe-area-inset-bottom, 0px));
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-top: 1px solid var(--line);
 }
 
 /* Portrait mobile auto-rotation for widescreen cinema mode */
@@ -4819,13 +4792,6 @@ dialog.modal.has-ambient .detail-hero .eyebrow {
     margin-left: auto;
   }
 
-  .stage-expand-fab {
-    right: 18px;
-    top: 10px;
-    padding: 5px 10px;
-    font-size: 0.68rem;
-  }
-
   .studio-inline-search {
     grid-template-columns: 1fr;
     padding: 0 16px 12px;
@@ -5149,4 +5115,21 @@ dialog.modal.has-ambient .detail-hero .eyebrow {
 @media (max-width:540px) {
   .install-banner > .button { width: 100%; }
   .install-banner { padding: 14px; }
+}
+
+.studio-period-filter { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center; gap: 12px; margin: 0 20px 16px; padding: 16px; border: 1px solid var(--line); border-radius: 18px; background: var(--surface-alt); }
+.studio-period-filter > div { display: grid; gap: 6px; min-width: 0; }
+.studio-period-filter small { color: var(--muted); font-size: .75rem; line-height: 1.65; overflow-wrap: anywhere; }
+.studio-period-filter > small { grid-column: 1 / -1; }
+.studio-period-filter label { display: flex; align-items: center; gap: 12px; grid-column: 1 / -1; font-size: .8rem; }
+.studio-period-filter select { width: auto; flex: 1; min-width: 0; }
+.studio-playback-status { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 0 20px 16px; font-size: .76rem; line-height: 1.7; color: var(--muted); }
+.period-help { border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; margin: 12px 0 18px; font-size: .8rem; line-height: 1.7; }
+.period-help summary { cursor: pointer; color: var(--accent); font-weight: 700; }
+.period-help p { color: var(--muted); margin: 10px 0 0; }
+.period-results > .button { margin-bottom: 16px; }
+@media(max-width:600px) {
+  .studio-period-filter { grid-template-columns: minmax(0,1fr); margin: 0 14px 14px; padding: 12px; }
+  .studio-period-filter > .button { width: 100%; }
+  .period-explorer .history-filters { grid-template-columns: minmax(0,1fr); }
 }

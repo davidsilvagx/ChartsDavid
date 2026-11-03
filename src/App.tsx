@@ -782,8 +782,8 @@ function App() {
 
               {page !== 'library' && (
                 <section className="history-entry" aria-label="Acessar todo o histórico">
-                  <div><strong>Seu histórico completo</strong><small>{lastfmLoaded} de {weeks.length} semanas Last.fm salvas · {years.at(-1)}–{years[0]}</small></div>
-                  <button type="button" className="button" onClick={() => setHistoryOpen(true)}><CalendarDays size={16}/><span>Explorar dias, meses e anos</span></button>
+                  <div><strong>{page==='studio'?'Datas do vídeo':'Seu histórico completo'}</strong><small>{page==='studio'?'Escolha um ano, mês, semana ou intervalo livre para animar.':`${lastfmLoaded} de ${weeks.length} semanas Last.fm salvas · ${years.at(-1)}–${years[0]}`}</small></div>
+                  <button type="button" className="button" onClick={() => setHistoryOpen(true)}><CalendarDays size={16}/><span>{page==='studio'?'Filtrar período do vídeo':'Explorar dias, meses e anos'}</span></button>
                   {lastfmLoaded < weeks.length && <button type="button" className="button primary" disabled={!!progress || !online} onClick={() => void data.sync('all')}>{progress ? <MusicLoader size="sm" tone="ink"/> : <Download size={16}/>}<span>{progress ? 'Baixando histórico…' : 'Baixar histórico completo'}</span></button>}
                 </section>
               )}
@@ -1259,6 +1259,9 @@ function App() {
                   library={studioPeriod?.library ?? library}
                   reduced={reduced}
                   dark={dark}
+                  busy={computing}
+                  preserveRange={!!studioPeriod || year !== 'all'}
+                  onChoosePeriod={() => setHistoryOpen(true)}
                   initialSelected={studioSeed}
                   onConsumeInitial={() => setStudioSeed(undefined)}
                   onError={data.setError}
@@ -1442,7 +1445,7 @@ function App() {
         />
       )}
 
-      {historyOpen && <HistoryExplorer weeks={weeks} charts={charts} initialYear={year} selectedId={selected?.id} startDate={settings.startDate} computing={computing} progress={progress} error={error} onCancel={data.cancel} onSync={scope => void data.sync(scope)} onClose={() => setHistoryOpen(false)} onCalendar={() => {setHistoryOpen(false);navigate('settings');}} initialMode={page==='studio'?'period':'archive'} onChoose={week => {setYear(String(week.year));setWeekId(week.id);setHistoryOpen(false);navigate('charts');}} settings={settings} cached={cached} kind={kind} source={sourceFilter} onAnimate={result => {setStudioPeriod(result);setStudioSeed(undefined);setHistoryOpen(false);navigate('studio');}} />}
+      {historyOpen && <HistoryExplorer weeks={weeks} charts={charts} initialYear={year} selectedId={selected?.id} startDate={settings.startDate} computing={computing} progress={progress} error={error} onCancel={data.cancel} onSync={scope => void data.sync(scope)} onClose={() => setHistoryOpen(false)} onCalendar={() => {setHistoryOpen(false);navigate('settings');}} initialMode={page==='studio'?'period':'archive'} onChoose={week => {setYear(String(week.year));setWeekId(week.id);setHistoryOpen(false);navigate('charts');}} settings={settings} cached={cached} kind={kind} source={sourceFilter} onAnimate={result => {setStudioPeriod(result);setStudioSeed(undefined);setHistoryOpen(false);if(page!=='studio')navigate('studio');}} />}
 
       {avatarModal && (
         <AvatarPickerModal

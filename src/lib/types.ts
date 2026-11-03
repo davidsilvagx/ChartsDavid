@@ -86,6 +86,7 @@ export interface ChartEntry extends Item {
 }
 
 export interface ChartWeek extends Week {
+  playCounts?: Array<[string, number]>;
   status: 'loaded' | 'missing';
   entries: ChartEntry[];
   plays: number;

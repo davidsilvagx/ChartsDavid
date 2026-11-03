@@ -190,6 +190,7 @@ export function buildCharts(
       .filter(item => item.plays >= 1)
       .sort((a, b) => b.plays - a.plays || (previous.get(a.id) ?? Infinity) - (previous.get(b.id) ?? Infinity) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
       .slice(0, 100);
+    const playCounts: Array<[string, number]> = [...counts].map(([id,item]) => [id,item.plays]);
     const ranked = new Map(sorted.map((item, i) => [item.id, i + 1]));
     const preEntryState = new Map<string, { outStreak: number; hadMissing: boolean }>();
 
@@ -247,7 +248,7 @@ export function buildCharts(
     });
     previous = ranked;
     previousKnown = true;
-    return { ...week, status: 'loaded', entries, plays, unique: counts.size, provisional: !complete };
+    return { ...week, status: 'loaded', entries, playCounts, plays, unique: counts.size, provisional: !complete };
   });
 }
 

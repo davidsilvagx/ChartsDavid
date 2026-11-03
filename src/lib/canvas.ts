@@ -88,7 +88,7 @@ export function drawChart(ctx: CanvasRenderingContext2D, width: number, height: 
   ctx.save();
   ctx.font = `500 ${width < 540 ? 8 : 10}px ${UI_FONT}`;
   ctx.textAlign = 'right';
-  ctx.fillStyle = options.dark === false || options.settings.canvasTheme === 'light' ? '#64748b' : '#94a3b8';
+  ctx.fillStyle = (options.dark ?? (options.settings.canvasTheme !== 'light')) ? '#94a3b8' : '#64748b';
   ctx.fillText('Feito com ❤️ por William Santos', width - 14, height - 6);
   ctx.restore();
 }
@@ -530,8 +530,8 @@ function drawBarRace(
     };
   });
 
-  const rank0Order = [...scored].sort((a, b) => b.v0 - a.v0 || a.item.name.localeCompare(b.item.name));
-  const rank1Order = [...scored].sort((a, b) => b.v1 - a.v1 || a.item.name.localeCompare(b.item.name));
+  const rank0Order = [...scored].sort((a, b) => b.v0 - a.v0 || a.item.name.localeCompare(b.item.name) || a.item.id.localeCompare(b.item.id));
+  const rank1Order = [...scored].sort((a, b) => b.v1 - a.v1 || a.item.name.localeCompare(b.item.name) || a.item.id.localeCompare(b.item.id));
   const r0 = new Map(rank0Order.map((x, i) => [x.item.id, i]));
   const r1 = new Map(rank1Order.map((x, i) => [x.item.id, i]));
 
@@ -550,7 +550,8 @@ function drawBarRace(
   const bottom = height - (compact ? 26 : 34);
   const areaH = Math.max(100, bottom - top);
   const slotH = areaH / Math.max(1, maxBars);
-  const barH = Math.max(16, Math.min(38, slotH * 0.74));
+  const barH = Math.max(3, Math.min(38, slotH * 0.74));
+  const rowScale = Math.min(1, slotH / 18);
   const maxVal = Math.max(1, ...active.map(a => a.value));
   const rankColW = compact ? 28 : 36;
   const barStartX = padX + rankColW;
@@ -594,7 +595,7 @@ function drawBarRace(
 
     const dispRank = Math.min(maxBars, Math.round(row.visualSlot) + 1);
     ctx.fillStyle = dispRank === 1 ? '#f5c451' : muted;
-    ctx.font = `700 ${compact ? 10 : 12}px ${UI_FONT}`;
+    ctx.font = `700 ${(compact ? 10 : 12) * rowScale}px ${UI_FONT}`;
     ctx.textAlign = 'right';
     ctx.fillText(`#${dispRank}`, barStartX - 8, cy + 4);
     ctx.textAlign = 'left';
@@ -609,7 +610,7 @@ function drawBarRace(
     ctx.fill();
 
     // Circular cover at tip of bar
-    const radius = Math.max(7, (barH - 4) / 2);
+    const radius = Math.max(1, (barH - 2) / 2);
     const cx = barStartX + w - radius - 2;
     ctx.save();
     ctx.beginPath();
@@ -622,13 +623,13 @@ function drawBarRace(
     ctx.restore();
 
     if (dispRank === 1 && s.effects) {
-      drawCrown(ctx, cx, cy - radius - 2, compact ? 9 : 12);
+      drawCrown(ctx, cx, cy - radius - 2, (compact ? 9 : 12) * rowScale);
     }
 
     // Label inside or beside bar
     const labelLimit = Math.max(40, w - radius * 2 - 16);
     const labelText = `${row.item.name} · ${row.item.artist}`;
-    ctx.font = `700 ${compact ? 9.5 : 11.5}px ${UI_FONT}`;
+    ctx.font = `700 ${(compact ? 9.5 : 11.5) * rowScale}px ${UI_FONT}`;
     if (w > (compact ? 115 : 165)) {
       ctx.fillStyle = '#ffffff';
       ctx.shadowColor = 'rgba(0,0,0,0.45)';
@@ -639,18 +640,18 @@ function drawBarRace(
 
     // Play count right of bar
     ctx.fillStyle = fg;
-    ctx.font = `700 ${compact ? 10 : 12}px ${UI_FONT}`;
+    ctx.font = `700 ${(compact ? 10 : 12) * rowScale}px ${UI_FONT}`;
     const countStr = String(Math.round(row.value));
     const countX = barStartX + w + 8;
     ctx.fillText(countStr, countX, cy + (w <= (compact ? 115 : 165) ? -1 : 4));
 
     if (w <= (compact ? 115 : 165)) {
       ctx.fillStyle = muted;
-      ctx.font = `500 ${compact ? 8.5 : 10}px ${UI_FONT}`;
+      ctx.font = `500 ${(compact ? 8.5 : 10) * rowScale}px ${UI_FONT}`;
       ctx.fillText(
         truncateCanvasText(ctx, row.item.name, Math.max(36, width - countX - 10)),
         countX,
-        cy + 10,
+        cy + 10 * rowScale,
       );
     }
 
