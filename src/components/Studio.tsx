@@ -1,6 +1,7 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type SetStateAction } from 'react';
 import {
   BarChart2,
+  CalendarDays,
   Check,
   Crown,
   Download,
@@ -30,6 +31,7 @@ import { resolveCatalogMedia } from '../lib/catalog';
 import { download } from '../lib/export';
 import { ChartCanvas, type ChartCanvasHandle } from './ChartCanvas';
 import { fitStudioCanvas } from '../lib/chartIndex';
+import { selectionInRange } from '../lib/studio';
 import { Cover, Empty, Modal, MusicLoader, number } from './UI';
 
 export type StudioViewMode = 'normal' | 'widescreen';
@@ -42,6 +44,9 @@ export function Studio({
   initialSelected,
   onConsumeInitial,
   onError,
+  onChoosePeriod,
+  busy = false,
+  preserveRange = false,
 }: {
   charts: ChartWeek[];
   library: Item[];
@@ -50,6 +55,9 @@ export function Studio({
   initialSelected?: string[];
   onConsumeInitial?: () => void;
   onError: (s: string) => void;
+  onChoosePeriod: () => void;
+  busy?: boolean;
+  preserveRange?: boolean;
 }) {
   const [settings, setSettings] = useState<StudioSettings>(() => {
     try {
@@ -75,7 +83,11 @@ export function Studio({
     () => typeof window !== 'undefined' && window.innerWidth < window.innerHeight && window.innerWidth <= 860,
   );
 
-  const [selected, setSelected] = useState<string[]>([]);
+  const [selected, setSelectedIds] = useState<string[]>([]);
+  const [autoBars, setAutoBars] = useState(true);
+  const [automaticIds,setAutomaticIds] = useState<string[]>([]);
+  const [preparingBars,setPreparingBars] = useState(false);
+  const [barsError,setBarsError] = useState('');
   const [autoSeeded, setAutoSeeded] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [position, setPosition] = useState(0);
@@ -98,9 +110,26 @@ export function Studio({
   const counterRef = useRef<HTMLSpanElement>(null);
   const positionRef = useRef(0);
 
-  const selectedSet = useMemo(() => new Set(selected), [selected]);
-  const selectedItems = useMemo(() => library.filter(i => selectedSet.has(i.id)), [library, selectedSet]);
-  const timeline = useMemo(() => trimTimeline(charts, selected), [charts, selected]);
+  useEffect(()=>{
+    if(settings.mode!=='bars'||!autoBars){setPreparingBars(false);setBarsError('');return;}
+    setPreparingBars(true);setBarsError('');
+    let active=true;
+    const worker=new Worker(new URL('../workers/studio.worker.ts',import.meta.url),{type:'module'});
+    worker.onmessage=({data})=>{if(!active)return;setPreparingBars(false);if(data.error){setBarsError(data.error);setAutomaticIds([]);}else setAutomaticIds(data.ids);worker.terminate();};
+    worker.onerror=()=>{if(!active)return;setPreparingBars(false);setAutomaticIds([]);setBarsError('Não foi possível preparar o Top. Altere o período e tente novamente.');worker.terminate();};
+    worker.postMessage({charts:charts.map(c=>({status:c.status,playCounts:c.playCounts,entries:c.entries.map(({id,plays})=>({id,plays}))})),library:library.map(({id,name})=>({id,name})),count:settings.barCount,metric:settings.barMetric});
+    return()=>{active=false;worker.terminate();};
+  },[charts,library,settings.mode,settings.barCount,settings.barMetric,autoBars]);
+  const preparing=busy||preparingBars;
+  const automaticItems = useMemo(() => {const ids=new Set(automaticIds);return library.filter(item=>ids.has(item.id));},[library,automaticIds]);
+  const selectedItems = useMemo(() => settings.mode === 'bars' && autoBars ? automaticItems : library.filter(i => selected.includes(i.id)), [library,selected,automaticItems,settings.mode,autoBars]);
+  const selectedSet = useMemo(() => new Set(selectedItems.map(i=>i.id)), [selectedItems]);
+  const timeline = useMemo(() => preserveRange || (settings.mode === 'bars' && autoBars) ? charts : trimTimeline(charts, [...selectedSet]), [charts,selectedSet,settings.mode,autoBars,preserveRange]);
+  const setSelected = (action: SetStateAction<string[]>) => {
+    const current = [...selectedSet];
+    setAutoBars(false);
+    setSelectedIds(typeof action === 'function' ? action(current) : action);
+  };
 
   const inlineResults = useMemo(() => {
     const q = inlineQuery.trim().toLowerCase();
@@ -186,7 +215,8 @@ export function Studio({
   // Auto-seed Studio with latest week's Top 5 or external selection so Studio opens vibrant and ready
   useEffect(() => {
     if (initialSelected?.length) {
-      setSelected(initialSelected.filter(id => library.some(i => i.id === id)));
+      setAutoBars(false);
+      setSelectedIds(initialSelected.filter(id => library.some(i => i.id === id)));
       setAutoSeeded(true);
       onConsumeInitial?.();
       return;
@@ -194,7 +224,7 @@ export function Studio({
     if (!autoSeeded && !selected.length && charts.length && library.length) {
       const latestLoaded = [...charts].reverse().find(w => w.status === 'loaded' && w.entries.length > 0);
       if (latestLoaded) {
-        setSelected(latestLoaded.entries.slice(0, 5).map(e => e.id));
+        setSelectedIds(latestLoaded.entries.slice(0, 5).map(e => e.id));
         setAutoSeeded(true);
       }
     }
@@ -212,14 +242,14 @@ export function Studio({
     setPlaying(false);
     setPosition(0);
     positionRef.current = 0;
-    setSelected(ids => ids.filter(id => library.some(i => i.id === id)));
+    setSelectedIds(ids => selectionInRange(charts,ids));
   }, [charts, library]);
 
   useEffect(() => {
     setPosition(0);
     positionRef.current = 0;
     setPlaying(false);
-  }, [selected]);
+  }, [selectedItems]);
 
   useEffect(() => () => abortRecord.current?.abort(), []);
 
@@ -421,7 +451,7 @@ export function Studio({
       };
       controller.signal.addEventListener('abort', stop, { once: true });
 
-      const useDarkCanvas = settings.canvasTheme !== 'light';
+      const useDarkCanvas = dark;
       drawChart(ctx, w, h, { charts: timeline, items: selectedItems, settings, position: 0, dark: useDarkCanvas, reduced });
       recorder.start(1000);
       source?.start();
@@ -466,7 +496,7 @@ export function Studio({
   };
 
   const paletteColors = palettes[settings.palette] ?? palettes.neon;
-  const useDarkCanvas = settings.canvasTheme ? settings.canvasTheme === 'dark' : dark;
+  const useDarkCanvas = dark;
   const rotateMobileWidescreen = expanded && viewMode === 'widescreen' && isPortraitViewport;
   const aspect = viewMode === 'widescreen' || settings.format === 'landscape' ? 16/9 : settings.format === 'portrait' ? 9/16 : 1;
   const fitted = fitStudioCanvas(stageSize.width,stageSize.height,aspect);
@@ -475,6 +505,8 @@ export function Studio({
     ? Math.max(1,fitted.height)
     : viewMode === 'widescreen'
       ? 'clamp(260px, 50vw, 580px)'
+      : settings.mode === 'bars'
+        ? Math.max(410, settings.barCount * 24 + 100)
       : settings.format === 'portrait'
         ? 560
         : settings.format === 'square'
@@ -511,7 +543,7 @@ export function Studio({
                   type="button"
                   className={settings.mode === 'bars' ? 'selected' : ''}
                   aria-pressed={settings.mode === 'bars'}
-                  onClick={() => update('mode', 'bars')}
+                  onClick={() => { setAutoBars(true); update('mode', 'bars'); }}
                 >
                   <BarChart2 size={15} />
                   <span>Barras</span>
@@ -565,6 +597,16 @@ export function Studio({
             </div>
           </div>
 
+          {!expanded && <div className="studio-period-filter">
+            <div><strong>Período do vídeo</strong><small>{charts[0]?.label} até {charts.at(-1)?.label} · {charts.length} {charts[0]?.unit === 'year' ? 'anos' : charts[0]?.unit === 'month' ? 'meses' : charts[0]?.unit === 'day' ? 'dias' : 'semanas'}</small></div>
+            <button type="button" className="button small" disabled={recording} onClick={onChoosePeriod}><CalendarDays size={16}/><span>Filtrar ano, mês ou semana</span></button>
+            {settings.mode === 'bars' && <>
+              <label>Barras no ranking<select aria-label="Quantidade de barras" value={settings.barCount} disabled={recording} onChange={e=>{setAutoBars(true);update('barCount',Number(e.target.value));}}>{[5,10,15,20,30].map(n=><option key={n} value={n}>Top {n} barras</option>)}</select></label>
+              <small>{autoBars ? `Top ${settings.barCount} automático em cada período, com todos os competidores que chegam a ele.` : `Seleção manual: ${selectedItems.length} competidores. O limite de barras não adiciona músicas à seleção manual.`} As barras contam todas as reproduções salvas no intervalo, inclusive fora do Top 100.</small>
+              {!autoBars && <button type="button" className="text-button" disabled={recording} onClick={()=>setAutoBars(true)}>Usar Top {settings.barCount} automático</button>}
+            </>}
+          </div>}
+
           {!expanded && !!library.length && (
             <div className="preset-strip" aria-label="Seleções rápidas">
               <button type="button" className="chip-btn" disabled={recording} onClick={() => applyPreset('recent5')}>
@@ -615,18 +657,6 @@ export function Studio({
               height={canvasHeight}
               width={expanded ? Math.max(1,fitted.width) : undefined}
             />
-            {!expanded && (
-              <button
-                type="button"
-                className="stage-expand-fab"
-                onClick={() => void toggleExpanded()}
-                title="Expandir animação em tela maior"
-                aria-label="Expandir animação em tela maior"
-              >
-                <Maximize2 size={15} />
-                <span>Tela maior</span>
-              </button>
-            )}
           </div>
 
           <div className="transport">
@@ -646,7 +676,7 @@ export function Studio({
             <button
               type="button"
               className="play-button"
-              disabled={recording || timeline.length < 2}
+              disabled={recording || preparing || !selectedItems.length || timeline.length < 2}
               onClick={() => {
                 if (positionRef.current >= timeline.length - 1) {
                   positionRef.current = 0;
@@ -680,6 +710,10 @@ export function Studio({
             </span>
           </div>
 
+          {!expanded && <div className="studio-playback-status" role="status">
+            {preparing ? <><MusicLoader size="sm"/><span>Preparando os charts do vídeo…</span></> : barsError ? <span>{barsError}</span> : !selectedItems.length || !timeline.length ? <><span>Nenhum competidor encontrado neste intervalo. Ajuste as datas ou a seleção.</span><button type="button" className="text-button" onClick={onChoosePeriod}>Alterar período</button></> : timeline.length === 1 ? <><span>Quadro único: este filtro gerou apenas um período. Salve o PNG ou escolha semanas, meses ou dias para ver a evolução.</span><button type="button" className="text-button" onClick={onChoosePeriod}>Criar uma sequência de períodos</button></> : <span>{timeline.length} períodos prontos para reproduzir · {timeline[0]?.label} até {timeline.at(-1)?.label}</span>}
+          </div>}
+
           {recording && (
             <div className="record-status" role="status">
               <MusicLoader size="sm" />
@@ -697,7 +731,7 @@ export function Studio({
               <button
                 type="button"
                 className={`button primary ${recording ? 'is-loading' : ''}`}
-                disabled={recording || !timeline.length}
+                disabled={recording || preparing || !selectedItems.length || !timeline.length}
                 onClick={record}
               >
                 {recording ? <MusicLoader size="sm" tone="ink" /> : <Download size={17} />}
@@ -831,7 +865,7 @@ export function Studio({
             />
           ) : (
             <div className="competitors">
-              {selectedItems.map((item, i) => (
+              {selectedItems.slice(0,60).map((item, i) => (
                 <div key={item.id} className="competitor">
                   <Cover item={item} round />
                   <div className="truncate">
@@ -856,6 +890,7 @@ export function Studio({
                   </button>
                 </div>
               ))}
+              {selectedItems.length > 60 && <button type="button" className="button" onClick={()=>setPicking(true)}>Ver os {selectedItems.length} competidores no catálogo</button>}
             </div>
           )}
           {timeline.some(w => w.provisional) && (
@@ -878,7 +913,7 @@ export function Studio({
           <fieldset disabled={recording}>
             {settings.mode === 'lines' ? (
               <label>
-                Escala vertical fixa
+                Escala vertical fixa (posições)
                 <select value={settings.top} onChange={e => update('top', Number(e.target.value))}>
                   {[100, 50, 30, 20, 10].map(n => (
                     <option key={n} value={n}>
@@ -898,8 +933,8 @@ export function Studio({
                 </label>
                 <label>
                   Barras visíveis
-                  <select value={settings.barCount} onChange={e => update('barCount', Number(e.target.value))}>
-                    {[10, 15, 20].map(n => (
+                  <select value={settings.barCount} onChange={e => {setAutoBars(true);update('barCount', Number(e.target.value));}}>
+                    {[5, 10, 15, 20, 30].map(n => (
                       <option key={n} value={n}>
                         Top {n} barras
                       </option>
@@ -927,10 +962,7 @@ export function Studio({
 
             <label>
               Fundo do gráfico
-              <select value={settings.canvasTheme} onChange={e => update('canvasTheme', e.target.value as StudioSettings['canvasTheme'])}>
-                <option value="dark">Obsidiana Studio (Escuro)</option>
-                <option value="light">Cristal Editorial (Claro)</option>
-              </select>
+              <small>Acompanha o tema do aplicativo, inclusive nas exportações: {dark ? 'escuro' : 'claro'}.</small>
             </label>
             <label>Fluidez da prévia<select aria-label="Fluidez da prévia" value={settings.previewFps ?? 'auto'} onChange={e=>update('previewFps',e.target.value==='auto'?undefined:Number(e.target.value) as 30|60)}><option value="auto">Automática · 30 fps no celular</option><option value="30">30 fps · menor consumo</option><option value="60">60 fps · maior fluidez</option></select><small>A exportação de vídeo mantém 60 fps.</small></label>
 
@@ -1062,7 +1094,7 @@ export function Studio({
 
           <div className="selection-tools">
             <span>
-              <strong>{selected.length}</strong> selecionados
+              <strong>{selectedItems.length}</strong> selecionados
             </span>
             <button
               type="button"
@@ -1110,7 +1142,7 @@ export function Studio({
               A seleção usa todo o histórico sincronizado e mantém reentradas reais sem inventar posições.
             </p>
             <button type="button" className="button primary" onClick={() => setPicking(false)}>
-              Concluir · {selected.length} itens
+              Concluir · {selectedItems.length} itens
             </button>
           </div>
         </Modal>
