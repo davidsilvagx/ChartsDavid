@@ -1,3 +1,4 @@
+import { formatDateBR } from './calendar';
 import type { ChartWeek, Item, Kind, StudioSettings } from './types';
 
 export const palettes = {
@@ -149,8 +150,8 @@ function drawChartFrame(ctx: CanvasRenderingContext2D, width: number, height: nu
     const badgeText = ultraCompact
       ? `S.${charts[current].number} · ${charts[current].label}`
       : compact
-        ? `SEM. ${charts[current].number} · ${charts[current].label} · ${String(charts[current].year).slice(-2)}`
-        : `SEM. ${charts[current].number}  ·  ${charts[current].label} · ${charts[current].year}`;
+        ? `SEM. ${charts[current].number} · ${charts[current].label}`
+        : `SEM. ${charts[current].number}  ·  ${charts[current].label}`;
     ctx.font = `600 ${ultraCompact ? 8.5 : compact ? 9.5 : 11}px ${UI_FONT}`;
     const tw = ctx.measureText(badgeText).width;
     const bw = tw + (compact ? 14 : 22);
@@ -499,7 +500,7 @@ function drawChartFrame(ctx: CanvasRenderingContext2D, width: number, height: nu
     const px = x(i);
     if (px < left || px > edge) continue;
     if (i % labelStep === 0) {
-      ctx.fillText(charts[i].id.slice(5).split('-').reverse().join('/'), px - 14, bottom + (compact ? 16 : 20));
+      ctx.fillText(formatDateBR(charts[i].id), px - 14, bottom + (compact ? 16 : 20));
     }
   }
 
@@ -772,7 +773,7 @@ export async function renderWeeklyShareCard(week: ChartWeek, kind: Kind, usernam
 
   ctx.fillStyle = '#94a3b8';
   ctx.font = `600 24px ${UI_FONT}`;
-  ctx.fillText(`Semana ${week.number}  ·  ${week.label} · ${week.year}  ·  ${week.plays} plays`, 68, 188);
+  ctx.fillText(`Semana ${week.number}  ·  ${week.label}  ·  ${week.plays} plays`, 68, 188);
 
   // #1 Hero Card
   const leader = top10[0];
