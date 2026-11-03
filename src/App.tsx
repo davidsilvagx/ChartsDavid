@@ -14,6 +14,7 @@ import {
   CircleHelp,
   Crown,
   Download,
+  Disc3,
   ExternalLink,
   Film,
   Flame,
@@ -63,7 +64,7 @@ import { validateCalendar } from './lib/calendar';
 import { computeRecords, getCertification, getItemAuditHistory, selectScrobblesForFilter } from './lib/charts';
 import { renderWeeklyShareCard, palettes } from './lib/canvas';
 import { resolveCatalogMedia } from './lib/catalog';
-import { backupJSON, chartCSV, download, parseBackup } from './lib/export';
+import { backupJSON, chartCSV, download, parseBackup, shareCardPDF } from './lib/export';
 import { importWeeks } from './lib/storage';
 import {
   AmbientBackdrop,
@@ -393,12 +394,12 @@ function App() {
     }
   };
 
-  const saveWeeklyCard = async () => {
+  const saveWeeklyCard = async (format: 'png' | 'pdf' = 'png') => {
     if (!selected || !known || !selected.entries.length || exportingCard) return;
     setExportingCard(true);
     try {
       const blob = await renderWeeklyShareCard(selected, kind, settings.user);
-      if (blob) download(blob, `lastchart-card-${kind}-${selected.id}.png`);
+      if (blob) download(format === 'pdf' ? await shareCardPDF(blob) : blob, `lastchart-card-${kind}-${selected.id}.${format}`);
       else data.setError('Não foi possível gerar o card da semana.');
     } catch {
       data.setError('Falha ao renderizar o card da semana.');
@@ -511,11 +512,12 @@ function App() {
             </span>
             <button
               type="button"
-              className="icon-button surface-btn"
+              className={`icon-button theme-toggle ${dark ? 'is-dark' : ''}`}
+              title={dark ? 'Disco noturno · ativar tema claro' : 'Disco diurno · ativar tema escuro'}
               aria-label={dark ? 'Ativar modo claro' : 'Ativar modo escuro'}
               onClick={() => setSettings({ ...settings, theme: dark ? 'light' : 'dark' })}
             >
-              {dark ? <Sun size={18} /> : <Moon size={18} />}
+              <Disc3 size={18} />
             </button>
             <button
               type="button"
@@ -533,6 +535,7 @@ function App() {
         </header>
 
         <main id="main">
+          <AmbientBackdrop src={leader?.image} className="page-artwork" />
           {!online && (
             <div className="alert">
               <WifiOff size={18} />
@@ -632,7 +635,7 @@ function App() {
                     type="button"
                     className={`button glass-btn ${exportingCard ? 'is-loading' : ''}`}
                     disabled={exportingCard}
-                    onClick={saveWeeklyCard}
+                    onClick={() => void saveWeeklyCard()}
                   >
                     {exportingCard ? <MusicLoader size="sm" /> : <ImageDown size={17} />}
                     <span>{exportingCard ? 'Gerando card…' : 'Card Top 10'}</span>
@@ -1140,11 +1143,12 @@ function App() {
                             type="button"
                             className={`button small ${exportingCard ? 'is-loading' : ''}`}
                             disabled={!known || !entries.length || exportingCard}
-                            onClick={saveWeeklyCard}
+                            onClick={() => void saveWeeklyCard()}
                           >
                             {exportingCard ? <MusicLoader size="sm" /> : <ImageDown size={15} />}
                             <span>{exportingCard ? 'Gerando…' : 'Card PNG'}</span>
                           </button>
+                          <button type="button" className="button small" disabled={!known || !entries.length || exportingCard} onClick={() => void saveWeeklyCard('pdf')}><Download size={15} /><span>Card PDF</span></button>
                           <button type="button" className="button small" disabled={!known || !entries.length} onClick={saveCSV}>
                             <Download size={15} />
                             <span>CSV</span>
@@ -1316,7 +1320,7 @@ function App() {
           <footer className="page-footer">
             <span>
               <AudioLines size={15} />
-              <span>LastChart Studio Pro · Projeto independente</span>
+              <span>LastChart Studio Pro · Criado por William Santos</span>
             </span>
             <span>
               {computing ? (
