@@ -1,6 +1,6 @@
 import { makeWeeks, weekKey } from './calendar';
 import { normalize } from './charts';
-import { importWeeks, readWeeks } from './storage';
+import { importWeeks, isLastfmWeekSynced, readWeeks } from './storage';
 import type { CachedWeek, MusicSource, Scrobble, Settings, SourceFilter } from './types';
 
 export interface ConnectedPlatformAccount {
@@ -375,6 +375,7 @@ export async function mergePlatformScrobbles(
     const cutoff = Math.min(week.end, Math.max(prev?.cutoff ?? week.start, nowSec));
 
     toSave.push({
+      lastfmSynced: prev ? isLastfmWeekSynced(prev) : false,
       key: weekKey(settings, week.id),
       week,
       scrobbles: combined,
@@ -602,7 +603,7 @@ export function startYouTubeOAuth(googleClientId: string) {
     client_id: cleanId,
     redirect_uri: redirectUri,
     response_type: 'token',
-    scope: 'https://www.googleapis.com/auth/youtube.readonly https://www.googleapis.com/auth/userinfo.profile',
+    scope: 'openid profile',
     include_granted_scopes: 'true',
     state,
   });
