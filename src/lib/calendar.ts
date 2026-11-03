@@ -1,5 +1,19 @@
 import { Temporal } from '@js-temporal/polyfill';
 import type { Settings, Week } from './types';
+export function formatDateBR(iso: string): string {
+  const date = Temporal.PlainDate.from(iso);
+  return `${String(date.day).padStart(2, '0')}/${String(date.month).padStart(2, '0')}/${String(date.year).slice(-2)}`;
+}
+export function parseDateBR(value: string): string {
+  const match = /^(\d{2})\/(\d{2})\/(\d{2}|\d{4})$/.exec(value.trim());
+  if (!match) throw new Error('Informe a data no formato dd/mm/aa.');
+  const [, day, month, year] = match;
+  return Temporal.PlainDate.from(`${year.length === 2 ? `20${year}` : year}-${month}-${day}`).toString();
+}
+export function formatDateTimeBR(milliseconds: number, timeZone: string): string {
+  const date = Temporal.Instant.fromEpochMilliseconds(milliseconds).toZonedDateTimeISO(timeZone);
+  return `${formatDateBR(date.toPlainDate().toString())} ${String(date.hour).padStart(2, '0')}:${String(date.minute).padStart(2, '0')}`;
+}
 export function validateCalendar(start: string, timezone: string): void {
   const date = Temporal.PlainDate.from(start);
   if (date.dayOfWeek !== 5) throw new Error('O início da contagem deve ser uma sexta-feira.');
@@ -17,8 +31,7 @@ export function makeWeeks(settings: Pick<Settings, 'startDate' | 'timezone'>, no
     const start = Number(date.toZonedDateTime(settings.timezone).epochMilliseconds) / 1000;
     const end = Number(next.toZonedDateTime(settings.timezone).epochMilliseconds) / 1000;
     const last = next.subtract({ days: 1 });
-    const fmt = (d: Temporal.PlainDate) => `${String(d.day).padStart(2, '0')}/${String(d.month).padStart(2, '0')}`;
-    weeks.push({ id: date.toString(), number: weeks.length + 1, start, end, label: `${fmt(date)} — ${fmt(last)}`, year: date.year, partial: end * 1000 > now });
+    weeks.push({ id: date.toString(), number: weeks.length + 1, start, end, label: `${formatDateBR(date.toString())} — ${formatDateBR(last.toString())}`, year: date.year, partial: end * 1000 > now });
     date = next;
   }
   return weeks;
