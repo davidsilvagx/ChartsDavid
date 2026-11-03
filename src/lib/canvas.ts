@@ -79,6 +79,8 @@ export interface DrawOptions {
   dark?: boolean;
   title?: string;
   reduced?: boolean;
+  username?: string;
+  kind?: Kind;
 }
 
 const UI_FONT = `'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif`;
@@ -86,10 +88,12 @@ const UI_FONT = `'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, system-
 export function drawChart(ctx: CanvasRenderingContext2D, width: number, height: number, options: DrawOptions) {
   drawChartFrame(ctx, width, height, options);
   ctx.save();
-  ctx.font = `500 ${width < 540 ? 8 : 10}px ${UI_FONT}`;
+  ctx.font = `400 ${width < 540 ? 6.5 : 8}px ${UI_FONT}`;
   ctx.textAlign = 'right';
-  ctx.fillStyle = (options.dark ?? (options.settings.canvasTheme !== 'light')) ? '#94a3b8' : '#64748b';
-  ctx.fillText('Feito com ❤️ por William Santos', width - 14, height - 6);
+  ctx.fillStyle = (options.dark ?? (options.settings.canvasTheme !== 'light'))
+    ? 'rgba(255, 255, 255, 0.22)'
+    : 'rgba(15, 23, 42, 0.25)';
+  ctx.fillText('feito com ❤️ por william santos', width - (width < 540 ? 10 : 14), height - (width < 540 ? 4 : 5));
   ctx.restore();
 }
 
@@ -177,7 +181,7 @@ function drawChartFrame(ctx: CanvasRenderingContext2D, width: number, height: nu
   }
 
   if (s.mode === 'bars') {
-    drawBarRace(ctx, width, height, { charts, items, s, current, fraction, dark, fg, muted, accent, compact, padX, reduced });
+    drawBarRace(ctx, width, height, { charts, items, s, current, fraction, dark, fg, muted, accent, compact, padX, reduced, username: options.username, kind: options.kind });
     return;
   }
 
@@ -506,9 +510,11 @@ function drawBarRace(
     compact: boolean;
     padX: number;
     reduced: boolean;
+    username?: string;
+    kind?: Kind;
   },
 ) {
-  const { charts, items, s, current, fraction, dark, fg, muted, compact, padX } = params;
+  const { charts, items, s, current, fraction, dark, fg, muted, compact, padX, username, kind } = params;
   const { playMaps, cumPlayMaps } = getChartIndex(charts, items, s.barMetric !== 'weekly');
   const maps = s.barMetric === 'weekly' ? playMaps : cumPlayMaps;
   const paletteColors = palettes[s.palette] ?? palettes.neon;
@@ -557,16 +563,31 @@ function drawBarRace(
   const barStartX = padX + rankColW;
   const barMaxW = Math.max(80, width - barStartX - (compact ? 64 : 96));
 
-  // Watermark year/week in bottom-right (classic YouTube chart race aesthetic)
+  // Watermark year and user charts branding in bottom-right (classic YouTube chart race aesthetic)
   if (charts[current]) {
     ctx.save();
     ctx.textAlign = 'right';
+    const yearStr = String(charts[current].year || '');
+    const brandName = (username && username.toLowerCase() !== 'iknowjauregui' ? username : 'David').trim();
+    const metricText = s.barMetric === 'weekly' ? 'PLAYS NO PERÍODO' : 'PLAYS ACUMULADOS';
+
+    // Giant watermark number in the background behind bars
     ctx.fillStyle = dark ? 'rgba(255,255,255,0.06)' : 'rgba(15,23,42,0.06)';
-    ctx.font = `800 ${compact ? 44 : 68}px ${UI_FONT}`;
-    ctx.fillText(String(charts[current].year), width - padX, bottom - (compact ? 14 : 20));
-    ctx.fillStyle = dark ? 'rgba(255,255,255,0.16)' : 'rgba(15,23,42,0.18)';
-    ctx.font = `700 ${compact ? 11 : 13}px ${UI_FONT}`;
-    ctx.fillText(s.barMetric === 'weekly' ? 'PLAYS NO PERÍODO' : 'PLAYS ACUMULADOS', width - padX, bottom);
+    ctx.font = `800 ${compact ? 46 : 72}px ${UI_FONT}`;
+    ctx.fillText(yearStr, width - padX, bottom - (compact ? 14 : 20));
+
+    // Refined branding subtitle in foreground
+    const idKind = items[0]?.id?.startsWith('["artists"')
+      ? 'artists'
+      : items[0]?.id?.startsWith('["albums"')
+        ? 'albums'
+        : 'tracks';
+    const effectiveKind = kind ?? idKind;
+    const kindLabel = effectiveKind === 'artists' ? 'ARTISTS' : effectiveKind === 'albums' ? 'ALBUMS' : 'SONGS';
+    ctx.fillStyle = dark ? 'rgba(255,255,255,0.22)' : 'rgba(15,23,42,0.24)';
+    ctx.font = `700 ${compact ? 9 : 11}px ${UI_FONT}`;
+    const watermarkSub = `TOP ${maxBars} ${kindLabel} · ${brandName.toUpperCase()} CHARTS`;
+    ctx.fillText(watermarkSub, width - padX, bottom);
     ctx.restore();
   }
 
@@ -598,11 +619,12 @@ function drawBarRace(
       ctx.fillStyle = dispRank === 1 ? '#f5c451' : muted;
       ctx.font = `700 ${(compact ? 10 : 12) * rowScale}px ${UI_FONT}`;
       ctx.textAlign = 'right';
-      ctx.fillText(`#${dispRank}`, barStartX - 8, cy + 4);
+      ctx.fillText(`#${dispRank}`, barStartX - 8, cy + 3.5 * rowScale);
       ctx.textAlign = 'left';
     }
 
-    const w = Math.max(barH + 8, (row.value / maxVal) * barMaxW);
+    const minBarW = Math.max(barH * 2.2, compact ? 52 : 72);
+    const w = Math.min(barMaxW, Math.max(minBarW, (row.value / maxVal) * barMaxW));
     const grad = ctx.createLinearGradient(barStartX, 0, barStartX + w, 0);
     grad.addColorStop(0, row.color + (dark ? '44' : '33'));
     grad.addColorStop(1, row.color);
@@ -628,34 +650,22 @@ function drawBarRace(
       drawCrown(ctx, cx, cy - radius - 2, (compact ? 9 : 12) * rowScale);
     }
 
-    // Label inside or beside bar
-    const labelLimit = Math.max(40, w - radius * 2 - 16);
+    // Label inside bar (always neatly centered inside the bubble)
+    const labelLimit = Math.max(12, w - radius * 2 - (compact ? 16 : 20));
     const labelText = `${row.item.name} · ${row.item.artist}`;
     ctx.font = `700 ${(compact ? 9.5 : 11.5) * rowScale}px ${UI_FONT}`;
-    if (w > (compact ? 115 : 165)) {
-      ctx.fillStyle = '#ffffff';
-      ctx.shadowColor = 'rgba(0,0,0,0.45)';
-      ctx.shadowBlur = 4;
-      ctx.fillText(truncateCanvasText(ctx, labelText, labelLimit), barStartX + 10, cy + 3.5);
-      ctx.shadowBlur = 0;
-    }
+    ctx.fillStyle = '#ffffff';
+    ctx.shadowColor = 'rgba(0,0,0,0.55)';
+    ctx.shadowBlur = 4;
+    ctx.fillText(truncateCanvasText(ctx, labelText, labelLimit), barStartX + (compact ? 8 : 10), cy + 3.5 * rowScale);
+    ctx.shadowBlur = 0;
 
-    // Play count right of bar
+    // Play count right of bar (aligned at same vertical baseline)
     ctx.fillStyle = fg;
     ctx.font = `700 ${(compact ? 10 : 12) * rowScale}px ${UI_FONT}`;
     const countStr = String(Math.round(row.value));
     const countX = barStartX + w + 8;
-    ctx.fillText(countStr, countX, cy + (w <= (compact ? 115 : 165) ? -1 : 4));
-
-    if (w <= (compact ? 115 : 165)) {
-      ctx.fillStyle = muted;
-      ctx.font = `500 ${(compact ? 8.5 : 10) * rowScale}px ${UI_FONT}`;
-      ctx.fillText(
-        truncateCanvasText(ctx, row.item.name, Math.max(36, width - countX - 10)),
-        countX,
-        cy + 10 * rowScale,
-      );
-    }
+    ctx.fillText(countStr, countX, cy + 3.5 * rowScale);
 
     ctx.restore();
   }

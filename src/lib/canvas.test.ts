@@ -36,3 +36,56 @@ it.each([5,10,15,20,30])('não desenha barra extra ou posição repetida no iní
     }
   }
 });
+
+it('renderiza títulos dentro da bolha no celular, watermark com nome do usuário e assinatura discreta', () => {
+  const weeks = makeWeeks(defaults, Date.parse('2026-06-25T12:00Z'));
+  const cache: CachedWeek[] = weeks.map(w => ({
+    key: w.id,
+    week: w,
+    cutoff: w.end,
+    fetchedAt: 1,
+    duplicates: 0,
+    scrobbles: Array.from({ length: 20 }, (_, i) => ({
+      track: `Track ${i}`,
+      artist: `Artist ${i}`,
+      album: '',
+      image: '',
+      timestamp: w.start + 100 + i * (20 - i),
+    })),
+  }));
+  const charts = buildCharts(weeks, cache, 'tracks');
+  const texts: string[] = [];
+  const gradient = { addColorStop: vi.fn() };
+  const ctx = new Proxy({
+    fillText: (text: string) => texts.push(text),
+    measureText: (text: string) => ({ width: text.length * 5 }),
+    createLinearGradient: () => gradient,
+    createRadialGradient: () => gradient,
+  } as unknown as CanvasRenderingContext2D, {
+    get(target, key) {
+      return Reflect.get(target, key) ?? vi.fn();
+    },
+  });
+
+  drawChart(ctx, 360, 640, {
+    charts,
+    items: getLibrary(cache, 'tracks'),
+    settings: { ...studioDefaults, mode: 'bars', barCount: 10, effects: false },
+    position: charts.length - 1,
+    dark: true,
+    username: 'David',
+  });
+
+  // Marca d'água no fundo contém o usuário David e Top 10 Songs
+  expect(texts).toContain('TOP 10 SONGS · DAVID CHARTS');
+
+  // Assinatura é discreta em caixa baixa
+  expect(texts).toContain('feito com ❤️ por william santos');
+
+  // Todas as 10 faixas têm seus nomes e artistas renderizados dentro das barras
+  const trackLabels = texts.filter(t => t.includes(' · Artist '));
+  expect(trackLabels).toHaveLength(10);
+  for (let rank = 1; rank <= 10; rank++) {
+    expect(texts).toContain(`#${rank}`);
+  }
+});
