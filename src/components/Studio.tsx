@@ -82,7 +82,7 @@ export function Studio({
   const [query, setQuery] = useState('');
   const [inlineQuery, setInlineQuery] = useState('');
   const [limit, setLimit] = useState(100);
-  const [controls, setControls] = useState(true);
+  const [controls, setControls] = useState(false);
   const [recording, setRecording] = useState(false);
   const [recordProgress, setRecordProgress] = useState(0);
   const [audioFile, setAudioFile] = useState<File | null>(null);
@@ -836,7 +836,8 @@ export function Studio({
       </div>
 
       {controls && (
-        <aside className="panel studio-controls">
+        <Modal title="Painel do Estúdio" subtitle="Ajuste a animação sem alterar parâmetros durante a rolagem da página." onClose={() => setControls(false)} wide>
+        <div className="studio-controls">
           <div className="panel-heading">
             <h2>
               <Settings2 size={18} />
@@ -983,7 +984,8 @@ export function Studio({
               Restaurar padrão do estúdio
             </button>
           </fieldset>
-        </aside>
+        </div>
+        </Modal>
       )}
 
       {picking && (
@@ -1038,7 +1040,7 @@ export function Studio({
               Marcar filtrados ({shown.length})
             </button>
             <button type="button" className="text-button" onClick={() => setSelected([])}>
-              Limpar seleção
+              Desmarcar todos
             </button>
           </div>
 
