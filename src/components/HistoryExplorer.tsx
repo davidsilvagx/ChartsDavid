@@ -31,10 +31,10 @@ export function HistoryExplorer({ weeks, charts, initialYear, selectedId, startD
     : coverage.state === 'unavailable' ? 'Não há semanas iniciadas neste mês dentro do calendário configurado. Meses futuros aparecem quando começarem.'
     : `${number(coverage.plays)} reproduções nas semanas deste período, para a fonte selecionada.`;
 
-  return <Modal title="Histórico completo" subtitle="Todos os anos, meses e semanas do seu calendário. Sem limite de oito semanas." onClose={onClose} wide>
+  return <Modal title={initialMode==='period'?'Filtrar vídeo':'Histórico completo'} subtitle={initialMode==='period'?'Escolha a época e a divisão dos quadros. Depois envie a sequência para Linhas ou Barras.':'Todos os anos, meses e semanas do seu calendário. Sem limite de oito semanas.'} onClose={onClose} wide>
     <div className="history-explorer">
       <div className="history-mode" role="group" aria-label="Visualização do histórico"><button type="button" className={`button ${mode==='archive'?'primary':''}`} aria-pressed={mode==='archive'} onClick={()=>setMode('archive')}>Arquivo completo</button><button type="button" className={`button ${mode==='period'?'primary':''}`} aria-pressed={mode==='period'} onClick={()=>setMode('period')}>Charts por período</button></div>
-      {mode==='period' ? <><PeriodExplorer settings={settings} cached={cached} kind={kind} source={source} disabled={busy || computing} onAnimate={onAnimate} onDownload={()=>onSync('all')} />{progress&&<SyncProgressCard progress={progress} onCancel={onCancel} compact/>}{error&&<p role="alert" className="alert error">{error}</p>}</> : <>
+      {mode==='period' ? <><PeriodExplorer settings={settings} cached={cached} kind={kind} source={source} initialYear={initialYear} disabled={busy || computing} onAnimate={onAnimate} onDownload={()=>onSync('all')} />{progress&&<SyncProgressCard progress={progress} onCancel={onCancel} compact/>}{error&&<p role="alert" className="alert error">{error}</p>}</> : <>
       <h3>Arquivo semanal por ano e mês</h3>
       <div className="history-filters">
         <label>Ano<select aria-label="Ano do histórico" value={year} onChange={e => { setYear(e.target.value); setMonth('all'); }}>
