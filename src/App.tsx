@@ -1260,6 +1260,8 @@ function App() {
                   reduced={reduced}
                   dark={dark}
                   busy={computing}
+                  username={profile?.realname || (profile?.name && profile.name !== 'Iknowjauregui' ? profile.name : 'David')}
+                  kind={kind}
                   preserveRange={!!studioPeriod || year !== 'all'}
                   onChoosePeriod={() => setHistoryOpen(true)}
                   initialSelected={studioSeed}

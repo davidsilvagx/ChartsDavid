@@ -24,7 +24,7 @@ import {
   Upload,
   X,
 } from 'lucide-react';
-import { studioDefaults, type ChartWeek, type Item, type StudioSettings } from '../lib/types';
+import { studioDefaults, type ChartWeek, type Item, type Kind, type StudioSettings } from '../lib/types';
 import { trimTimeline } from '../lib/charts';
 import { cacheImageUrl, drawChart, palettes, prepareImages } from '../lib/canvas';
 import { resolveCatalogMedia } from '../lib/catalog';
@@ -47,6 +47,8 @@ export function Studio({
   onChoosePeriod,
   busy = false,
   preserveRange = false,
+  username = 'David',
+  kind = 'tracks',
 }: {
   charts: ChartWeek[];
   library: Item[];
@@ -58,6 +60,8 @@ export function Studio({
   onChoosePeriod: () => void;
   busy?: boolean;
   preserveRange?: boolean;
+  username?: string;
+  kind?: Kind;
 }) {
   const [settings, setSettings] = useState<StudioSettings>(() => {
     try {
@@ -452,7 +456,7 @@ export function Studio({
       controller.signal.addEventListener('abort', stop, { once: true });
 
       const useDarkCanvas = dark;
-      drawChart(ctx, w, h, { charts: timeline, items: selectedItems, settings, position: 0, dark: useDarkCanvas, reduced });
+      drawChart(ctx, w, h, { charts: timeline, items: selectedItems, settings, position: 0, dark: useDarkCanvas, reduced, username, kind });
       recorder.start(1000);
       source?.start();
 
@@ -463,7 +467,7 @@ export function Studio({
         if (controller.signal.aborted) return;
         const elapsed = (now - start) / 1000;
         const p = Math.min(timeline.length - 1, elapsed * settings.speed);
-        drawChart(ctx, w, h, { charts: timeline, items: selectedItems, settings, position: p, dark: useDarkCanvas, reduced });
+        drawChart(ctx, w, h, { charts: timeline, items: selectedItems, settings, position: p, dark: useDarkCanvas, reduced, username, kind });
         positionRef.current = p;
         if(now-lastPreview>=100){canvasHandle.current?.drawAt(p);lastPreview=now;}
         if (sliderRef.current) sliderRef.current.value = String(p);
@@ -653,6 +657,8 @@ export function Studio({
                 position,
                 dark: useDarkCanvas,
                 reduced,
+                username,
+                kind,
               }}
               height={canvasHeight}
               width={expanded ? Math.max(1,fitted.width) : undefined}
