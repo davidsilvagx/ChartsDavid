@@ -1,12 +1,37 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { BarChart2, Crown, Download, Flame, ImageDown, Pause, Play, Plus, RotateCcw, Search, Settings2, SlidersHorizontal, Sparkles, Square, TrendingUp, Upload, X } from 'lucide-react';
+import {
+  BarChart2,
+  Check,
+  Crown,
+  Download,
+  Flame,
+  ImageDown,
+  Maximize2,
+  Minimize2,
+  Monitor,
+  Pause,
+  Play,
+  Plus,
+  RectangleHorizontal,
+  RotateCcw,
+  Search,
+  Settings2,
+  SlidersHorizontal,
+  Sparkles,
+  Square,
+  TrendingUp,
+  Upload,
+  X,
+} from 'lucide-react';
 import { studioDefaults, type ChartWeek, type Item, type StudioSettings } from '../lib/types';
 import { trimTimeline } from '../lib/charts';
 import { cacheImageUrl, drawChart, palettes, prepareImages } from '../lib/canvas';
 import { resolveCatalogMedia } from '../lib/catalog';
 import { download } from '../lib/export';
 import { ChartCanvas, type ChartCanvasHandle } from './ChartCanvas';
-import { Cover, Empty, Modal } from './UI';
+import { Cover, Empty, Modal, MusicLoader, number } from './UI';
+
+export type StudioViewMode = 'normal' | 'widescreen';
 
 export function Studio({
   charts,
@@ -37,12 +62,25 @@ export function Studio({
       return studioDefaults;
     }
   });
+  const [viewMode, setViewMode] = useState<StudioViewMode>(() => {
+    try {
+      return localStorage.getItem('lastchart-studio:view-mode') === 'widescreen' ? 'widescreen' : 'normal';
+    } catch {
+      return 'normal';
+    }
+  });
+  const [expanded, setExpanded] = useState(false);
+  const [isPortraitViewport, setIsPortraitViewport] = useState(
+    () => typeof window !== 'undefined' && window.innerWidth < window.innerHeight && window.innerWidth <= 860,
+  );
+
   const [selected, setSelected] = useState<string[]>([]);
   const [autoSeeded, setAutoSeeded] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [position, setPosition] = useState(0);
   const [picking, setPicking] = useState(false);
   const [query, setQuery] = useState('');
+  const [inlineQuery, setInlineQuery] = useState('');
   const [limit, setLimit] = useState(100);
   const [controls, setControls] = useState(true);
   const [recording, setRecording] = useState(false);
@@ -50,6 +88,7 @@ export function Studio({
   const [audioFile, setAudioFile] = useState<File | null>(null);
 
   const abortRecord = useRef<AbortController | null>(null);
+  const previewPanelRef = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const canvasHandle = useRef<ChartCanvasHandle>(null);
   const sliderRef = useRef<HTMLInputElement>(null);
@@ -59,14 +98,69 @@ export function Studio({
   const selectedSet = useMemo(() => new Set(selected), [selected]);
   const selectedItems = useMemo(() => library.filter(i => selectedSet.has(i.id)), [library, selectedSet]);
   const timeline = useMemo(() => trimTimeline(charts, selected), [charts, selected]);
+
+  const inlineResults = useMemo(() => {
+    const q = inlineQuery.trim().toLowerCase();
+    if (!q) return [];
+    return library.filter(i => `${i.name} ${i.artist} ${i.album}`.toLowerCase().includes(q)).slice(0, 24);
+  }, [library, inlineQuery]);
+
   const shown = useMemo(
     () => (picking ? library.filter(i => `${i.name} ${i.artist} ${i.album}`.toLowerCase().includes(query.toLowerCase())) : []),
     [library, query, picking],
   );
   const artists = useMemo(
-    () => (picking ? [...new Set(library.map(i => i.artist))].sort((a, b) => a.localeCompare(b)) : []),
-    [library, picking],
+    () => [...new Set(library.map(i => i.artist))].sort((a, b) => a.localeCompare(b)),
+    [library],
   );
+
+  // Track viewport orientation so mobile expanded widescreen ("deitado") rotates cleanly when needed
+  useEffect(() => {
+    const checkViewport = () => {
+      setIsPortraitViewport(window.innerWidth < window.innerHeight && window.innerWidth <= 860);
+    };
+    window.addEventListener('resize', checkViewport);
+    return () => window.removeEventListener('resize', checkViewport);
+  }, []);
+
+  // Sync Escape key and native Fullscreen exits with Cinema Expanded state
+  useEffect(() => {
+    if (!expanded) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setExpanded(false);
+        if (document.fullscreenElement) {
+          document.exitFullscreen().catch(() => {});
+        }
+      }
+    };
+    const onFullscreenChange = () => {
+      if (!document.fullscreenElement) {
+        // Keep expanded state controlled cleanly if user pressed browser exit fullscreen
+        const orient = screen.orientation as ScreenOrientation & { unlock?: () => void };
+        orient?.unlock?.();
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      window.removeEventListener('keydown', onKeyDown);
+      document.removeEventListener('fullscreenchange', onFullscreenChange);
+    };
+  }, [expanded]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('lastchart-studio:view-mode', viewMode);
+    } catch {
+      /* optional */
+    }
+  }, [viewMode]);
 
   // Auto-seed Studio with latest week's Top 5 or external selection so Studio opens vibrant and ready
   useEffect(() => {
@@ -154,6 +248,52 @@ export function Studio({
   const update = <K extends keyof StudioSettings>(key: K, value: StudioSettings[K]) =>
     setSettings(s => ({ ...s, [key]: value }));
 
+  const switchViewMode = (nextMode: StudioViewMode) => {
+    setViewMode(nextMode);
+    if (nextMode === 'widescreen') {
+      update('format', 'landscape');
+      if (expanded && document.fullscreenElement) {
+        const orient = screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> };
+        orient?.lock?.('landscape')?.catch(() => {});
+      }
+    } else if (document.fullscreenElement) {
+      const orient = screen.orientation as ScreenOrientation & { unlock?: () => void };
+      orient?.unlock?.();
+    }
+  };
+
+  const toggleExpanded = async (preferWidescreen?: boolean) => {
+    const nextExpanded = !expanded;
+    if (preferWidescreen) {
+      setViewMode('widescreen');
+      update('format', 'landscape');
+    }
+    setExpanded(nextExpanded);
+
+    if (nextExpanded) {
+      try {
+        const el = previewPanelRef.current;
+        if (el?.requestFullscreen && !document.fullscreenElement) {
+          await el.requestFullscreen();
+          if (preferWidescreen || viewMode === 'widescreen') {
+            const orient = screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> };
+            await orient?.lock?.('landscape')?.catch(() => {});
+          }
+        }
+      } catch {
+        /* CSS Cinema Fullscreen overlay handles browsers like iOS Safari without native Fullscreen API */
+      }
+    } else if (document.fullscreenElement) {
+      const orient = screen.orientation as ScreenOrientation & { unlock?: () => void };
+      orient?.unlock?.();
+      document.exitFullscreen().catch(() => {});
+    }
+  };
+
+  const toggleCompetitor = (id: string) => {
+    setSelected(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]));
+  };
+
   const applyPreset = (preset: 'recent5' | 'recent10' | 'ones' | 'top10all') => {
     const latest = [...charts].reverse().find(w => w.status === 'loaded' && w.entries.length > 0);
     if (preset === 'recent5' && latest) {
@@ -206,7 +346,6 @@ export function Studio({
     let frame = 0;
 
     try {
-      // Ensure catalog artwork is loaded before recording
       await Promise.all(
         selectedItems.slice(0, 24).map(async it => {
           if (!it.image) {
@@ -300,16 +439,33 @@ export function Studio({
 
   const paletteColors = palettes[settings.palette] ?? palettes.neon;
   const useDarkCanvas = settings.canvasTheme ? settings.canvasTheme === 'dark' : dark;
+  const rotateMobileWidescreen = expanded && viewMode === 'widescreen' && isPortraitViewport;
+
+  const canvasHeight: number | string = expanded
+    ? '100%'
+    : viewMode === 'widescreen'
+      ? 'clamp(260px, 50vw, 580px)'
+      : settings.format === 'portrait'
+        ? 560
+        : settings.format === 'square'
+          ? 480
+          : 410;
 
   return (
-    <div className="studio-layout">
+    <div className={`studio-layout ${viewMode === 'widescreen' ? 'is-widescreen' : ''}`}>
       <div className="studio-main">
-        <div className="panel studio-preview">
+        <div
+          ref={previewPanelRef}
+          className={`panel studio-preview ${expanded ? 'is-expanded' : ''} ${viewMode === 'widescreen' ? 'view-widescreen' : 'view-normal'} ${rotateMobileWidescreen ? 'is-rotated-landscape' : ''}`}
+        >
           <div className="panel-heading studio-header-bar">
             <div>
-              <span className="eyebrow">ESTÚDIO DE ANIMAÇÃO · 60 FPS</span>
+              <span className="eyebrow">
+                {expanded ? 'MODO CINEMA · TELA AMPLIADA 60 FPS' : 'ESTÚDIO DE ANIMAÇÃO · 60 FPS'}
+              </span>
               <h2>{settings.mode === 'bars' ? 'Corrida de Reproduções' : 'Trajetória no Ranking'}</h2>
             </div>
+
             <div className="studio-mode-group">
               <div className="segmented compact-seg" role="group" aria-label="Modo de gráfico">
                 <button
@@ -331,19 +487,55 @@ export function Studio({
                   <span>Barras</span>
                 </button>
               </div>
+
+              <div className="segmented compact-seg display-mode-seg" role="group" aria-label="Padrão de exibição do vídeo">
+                <button
+                  type="button"
+                  className={viewMode === 'normal' ? 'selected' : ''}
+                  aria-pressed={viewMode === 'normal'}
+                  onClick={() => switchViewMode('normal')}
+                  title="Exibição Padrão (Normal)"
+                >
+                  <Monitor size={14} />
+                  <span>Normal</span>
+                </button>
+                <button
+                  type="button"
+                  className={viewMode === 'widescreen' ? 'selected' : ''}
+                  aria-pressed={viewMode === 'widescreen'}
+                  onClick={() => switchViewMode('widescreen')}
+                  title="Exibição Widescreen 16:9 (Deitado)"
+                >
+                  <RectangleHorizontal size={15} />
+                  <span>Widescreen</span>
+                </button>
+              </div>
+
               <button
                 type="button"
-                className="icon-button surface-btn"
-                onClick={() => setControls(v => !v)}
-                aria-label="Mostrar controles do estúdio"
-                aria-expanded={controls}
+                className={`button small expand-stage-btn ${expanded ? 'primary' : ''}`}
+                onClick={() => void toggleExpanded()}
+                aria-label={expanded ? 'Reduzir tamanho da animação' : 'Abrir animação em tamanho maior'}
               >
-                <SlidersHorizontal size={18} />
+                {expanded ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
+                <span>{expanded ? 'Fechar tela cheia' : 'Ver maior'}</span>
               </button>
+
+              {!expanded && (
+                <button
+                  type="button"
+                  className="icon-button surface-btn"
+                  onClick={() => setControls(v => !v)}
+                  aria-label="Mostrar controles do estúdio"
+                  aria-expanded={controls}
+                >
+                  <SlidersHorizontal size={18} />
+                </button>
+              )}
             </div>
           </div>
 
-          {!!library.length && (
+          {!expanded && !!library.length && (
             <div className="preset-strip" aria-label="Seleções rápidas">
               <button type="button" className="chip-btn" disabled={recording} onClick={() => applyPreset('recent5')}>
                 <Sparkles size={13} />
@@ -361,17 +553,27 @@ export function Studio({
                 <BarChart2 size={13} />
                 <span>Top 10 geral</span>
               </button>
+              <button
+                type="button"
+                className="chip-btn"
+                disabled={recording}
+                onClick={() => void toggleExpanded(true)}
+              >
+                <RectangleHorizontal size={13} />
+                <span>Abrir Widescreen (Deitado)</span>
+              </button>
               <button type="button" className="chip-btn accent" disabled={recording} onClick={() => setPicking(true)}>
                 <Plus size={13} />
-                <span>Escolher / Discografia</span>
+                <span>Catálogo / Discografia</span>
               </button>
             </div>
           )}
 
-          <div className="canvas-stage">
+          <div className={`canvas-stage ${viewMode === 'widescreen' ? 'widescreen-stage' : ''}`}>
             <ChartCanvas
               canvasRef={canvas}
               handleRef={canvasHandle}
+              className={viewMode === 'widescreen' && !expanded ? 'is-widescreen-canvas' : ''}
               options={{
                 charts: timeline,
                 items: selectedItems,
@@ -380,8 +582,20 @@ export function Studio({
                 dark: useDarkCanvas,
                 reduced,
               }}
-              height={settings.format === 'portrait' ? 560 : settings.format === 'square' ? 480 : 410}
+              height={canvasHeight}
             />
+            {!expanded && (
+              <button
+                type="button"
+                className="stage-expand-fab"
+                onClick={() => void toggleExpanded()}
+                title="Expandir animação em tela maior"
+                aria-label="Expandir animação em tela maior"
+              >
+                <Maximize2 size={15} />
+                <span>Tela maior</span>
+              </button>
+            )}
           </div>
 
           <div className="transport">
@@ -437,49 +651,150 @@ export function Studio({
 
           {recording && (
             <div className="record-status" role="status">
-              <progress max="100" value={recordProgress} />
+              <MusicLoader size="sm" />
               <span>Gravando {Math.round(recordProgress)}% · mantenha esta aba visível</span>
               <button type="button" className="button small" onClick={() => abortRecord.current?.abort()}>
                 <Square size={14} />
                 <span>Cancelar</span>
               </button>
+              <progress max="100" value={recordProgress} />
             </div>
           )}
 
-          <div className="studio-actions">
-            <button type="button" className="button primary" disabled={recording || !timeline.length} onClick={record}>
-              <Download size={17} />
-              <span>{recording ? 'Gravando…' : 'Gravar e baixar vídeo'}</span>
-            </button>
-            <button type="button" className="button" disabled={recording || !timeline.length} onClick={exportPNG}>
-              <ImageDown size={17} />
-              <span>Salvar frame PNG</span>
-            </button>
-            <span className="muted small-text">Renderização fluida 60 fps · WebM/MP4 nativo</span>
-          </div>
+          {!expanded && (
+            <div className="studio-actions">
+              <button
+                type="button"
+                className={`button primary ${recording ? 'is-loading' : ''}`}
+                disabled={recording || !timeline.length}
+                onClick={record}
+              >
+                {recording ? <MusicLoader size="sm" tone="ink" /> : <Download size={17} />}
+                <span>{recording ? 'Renderizando vídeo…' : 'Gravar e baixar vídeo'}</span>
+              </button>
+              <button type="button" className="button" disabled={recording || !timeline.length} onClick={exportPNG}>
+                <ImageDown size={17} />
+                <span>Salvar frame PNG</span>
+              </button>
+              <span className="muted small-text">Renderização fluida 60 fps · WebM/MP4 nativo</span>
+            </div>
+          )}
         </div>
 
-        <div className="panel">
+        {/* Inline Music Searcher + Active Competitors Panel */}
+        <div className="panel studio-search-panel">
           <div className="panel-heading">
             <div>
               <h2>
-                Competidores <span className="count-badge">{selectedItems.length}</span>
+                Buscador & Competidores <span className="count-badge">{selectedItems.length}</span>
               </h2>
-              <p>Posições reais disputadas contra o Top 100 completo de cada semana.</p>
+              <p>Busque músicas, álbuns ou artistas para adicionar ou remover da animação instantaneamente.</p>
             </div>
-            <button type="button" className="button small" disabled={recording} onClick={() => setPicking(true)}>
-              <Plus size={16} />
-              <span>Selecionar</span>
-            </button>
+            <div className="inline-actions">
+              {selectedItems.length > 0 && (
+                <button
+                  type="button"
+                  className="text-button"
+                  disabled={recording}
+                  onClick={() => setSelected([])}
+                >
+                  Limpar disputa
+                </button>
+              )}
+              <button type="button" className="button small" disabled={recording} onClick={() => setPicking(true)}>
+                <Plus size={16} />
+                <span>Catálogo completo</span>
+              </button>
+            </div>
           </div>
+
+          <div className="studio-inline-search">
+            <div className="search-field">
+              <Search size={17} />
+              <input
+                aria-label="Buscar músicas para a animação"
+                placeholder="Buscar música, álbum ou artista para animar…"
+                value={inlineQuery}
+                disabled={recording}
+                onChange={e => setInlineQuery(e.target.value)}
+              />
+              {inlineQuery && (
+                <button
+                  type="button"
+                  className="icon-button search-clear-btn"
+                  aria-label="Limpar busca"
+                  onClick={() => setInlineQuery('')}
+                >
+                  <X size={15} />
+                </button>
+              )}
+            </div>
+
+            {artists.length > 0 && (
+              <select
+                aria-label="Adicionar discografia ouvida de um artista"
+                value=""
+                disabled={recording}
+                onChange={e => {
+                  if (e.target.value) {
+                    const artistItems = library.filter(i => i.artist === e.target.value).map(i => i.id);
+                    setSelected(s => [...new Set([...s, ...artistItems])]);
+                  }
+                }}
+              >
+                <option value="">+ Discografia de artista…</option>
+                {artists.map(a => (
+                  <option key={a} value={a}>
+                    {a} ({library.filter(i => i.artist === a).length})
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+
+          {inlineQuery.trim() !== '' && (
+            <div className="studio-search-results" role="region" aria-label="Resultados da busca no estúdio">
+              {inlineResults.length ? (
+                inlineResults.map(item => {
+                  const isAdded = selectedSet.has(item.id);
+                  return (
+                    <div key={item.id} className={`studio-search-hit ${isAdded ? 'is-added' : ''}`}>
+                      <Cover item={item} />
+                      <div className="truncate">
+                        <strong>{item.name}</strong>
+                        <small>
+                          {item.artist}
+                          {item.album ? ` · ${item.album}` : ''} · {number(item.plays)} plays
+                        </small>
+                      </div>
+                      <button
+                        type="button"
+                        className={`button small ${isAdded ? '' : 'primary'}`}
+                        disabled={recording}
+                        onClick={() => toggleCompetitor(item.id)}
+                      >
+                        {isAdded ? <Check size={14} /> : <Plus size={14} />}
+                        <span>{isAdded ? 'Na disputa' : 'Adicionar'}</span>
+                      </button>
+                    </div>
+                  );
+                })
+              ) : (
+                <p className="muted small-text studio-no-hits">
+                  Nenhum item corresponde a “{inlineQuery}” no acervo atual.
+                </p>
+              )}
+            </div>
+          )}
+
           {!selectedItems.length ? (
             <Empty
               title="Escolha quem vai disputar"
-              description="Selecione faixas avulsas ou coloque toda a discografia ouvida de um artista para competir."
+              description="Use a busca acima para procurar qualquer música ou coloque toda a discografia de um artista para competir."
               action={
                 <button type="button" className="button primary" onClick={() => setPicking(true)}>
                   <Plus size={16} />
-                  <span>Escolher competidores</span>
+                  <span>Escolher no catálogo</span>
                 </button>
               }
             />
@@ -563,9 +878,16 @@ export function Studio({
             )}
 
             <label>
-              Formato do vídeo
-              <select value={settings.format} onChange={e => update('format', e.target.value as StudioSettings['format'])}>
-                <option value="landscape">Paisagem · 16:9 (YouTube)</option>
+              Formato do vídeo exportado
+              <select
+                value={settings.format}
+                onChange={e => {
+                  const fmt = e.target.value as StudioSettings['format'];
+                  update('format', fmt);
+                  if (fmt !== 'landscape' && viewMode === 'widescreen') setViewMode('normal');
+                }}
+              >
+                <option value="landscape">Widescreen · 16:9 Deitado (YouTube)</option>
                 <option value="portrait">Vertical · 9:16 (Reels / TikTok)</option>
                 <option value="square">Quadrado · 1:1 (Feed)</option>
               </select>
@@ -738,7 +1060,7 @@ export function Studio({
                     {item.album ? ` · ${item.album}` : ''}
                   </small>
                 </span>
-                <span className="picker-plays">{item.plays} plays</span>
+                <span className="picker-plays">{number(item.plays)} plays</span>
               </label>
             ))}
             {shown.length > limit && (

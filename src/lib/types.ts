@@ -1,5 +1,8 @@
 export type Kind = 'tracks' | 'albums' | 'artists';
 export type Theme = 'light' | 'dark' | 'system';
+export type MusicSource = 'lastfm' | 'spotify' | 'ytmusic';
+export type SourceFilter = 'all' | 'lastfm' | 'spotify' | 'ytmusic' | 'streaming';
+export type SyncScope = 'recent' | 'all' | number;
 
 export interface AliasRule {
   id: string;
@@ -19,6 +22,8 @@ export interface Settings {
   reducedMotion: boolean;
   avatar?: string;
   aliases?: AliasRule[];
+  spotifyClientId?: string;
+  googleClientId?: string;
 }
 
 export interface Scrobble {
@@ -28,6 +33,7 @@ export interface Scrobble {
   album: string;
   image: string;
   mbid?: string;
+  source?: MusicSource;
 }
 
 export interface Week {
@@ -99,6 +105,9 @@ export interface SyncProgress {
   total: number;
   message: string;
   pages: number;
+  scope?: SyncScope;
+  force?: boolean;
+  phase?: 'connecting' | 'fetching' | 'done';
 }
 
 export interface StudioSettings {
@@ -128,6 +137,8 @@ export const defaults: Settings = {
   reducedMotion: false,
   avatar: 'lastfm',
   aliases: [],
+  spotifyClientId: '',
+  googleClientId: '',
 };
 
 export const studioDefaults: StudioSettings = {

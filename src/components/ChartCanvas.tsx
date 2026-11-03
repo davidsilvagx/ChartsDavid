@@ -12,11 +12,13 @@ export function ChartCanvas({
   canvasRef,
   handleRef,
   height = 380,
+  className = '',
 }: {
   options: DrawOptions;
   canvasRef?: RefObject<HTMLCanvasElement | null>;
   handleRef?: Ref<ChartCanvasHandle>;
-  height?: number;
+  height?: number | string;
+  className?: string;
 }) {
   const internal = useRef<HTMLCanvasElement>(null);
   const ref = canvasRef ?? internal;
@@ -95,8 +97,8 @@ export function ChartCanvas({
   return (
     <canvas
       ref={ref}
-      className="history-canvas"
-      style={{ height }}
+      className={`history-canvas ${className}`.trim()}
+      style={height !== undefined ? { height } : undefined}
       role="img"
       aria-label={
         options.settings.mode === 'bars'

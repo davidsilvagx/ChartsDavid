@@ -1,7 +1,99 @@
-import type { AliasRule, CachedWeek, ChartEntry, ChartWeek, Item, Kind, Scrobble, Week } from './types';
+import type { AliasRule, CachedWeek, ChartEntry, ChartWeek, Item, Kind, MusicSource, Scrobble, SourceFilter, Week } from './types';
 
 export const normalize = (s: string) => s.normalize('NFC').trim().toLowerCase();
-export const scrobbleKey = (s: Scrobble) => JSON.stringify([s.timestamp, normalize(s.artist), normalize(s.track), normalize(s.album)]);
+export const scrobbleKey = (s: Scrobble) =>
+  JSON.stringify([s.timestamp, normalize(s.artist), normalize(s.track), normalize(s.album), s.source ?? 'lastfm']);
+
+function scrobbleSrc(s: Scrobble): MusicSource {
+  return s.source === 'spotify' || s.source === 'ytmusic' ? s.source : 'lastfm';
+}
+
+function allowSource(s: Scrobble, filter: SourceFilter): boolean {
+  const src = scrobbleSrc(s);
+  if (filter === 'all') return true;
+  if (filter === 'streaming') return src === 'spotify' || src === 'ytmusic';
+  return src === filter;
+}
+
+export function selectScrobblesForFilter(
+  raw: Scrobble[],
+  deduplicate = false,
+  sourceFilter: SourceFilter = 'all',
+  start?: number,
+  end?: number,
+): Scrobble[] {
+  const filtered = raw.filter(
+    s =>
+      (start === undefined || s.timestamp >= start) &&
+      (end === undefined || s.timestamp < end) &&
+      allowSource(s, sourceFilter),
+  );
+  if (!filtered.length) return [];
+
+  const multiSource = sourceFilter === 'all' || sourceFilter === 'streaming';
+  const hasMultipleSources =
+    multiSource && filtered.some(s => scrobbleSrc(s) !== scrobbleSrc(filtered[0]));
+
+  // Fast path for single-source (preserves 100% original behavior & performance)
+  if (!hasMultipleSources) {
+    if (!deduplicate) return filtered;
+    const seen = new Set<string>();
+    return filtered.filter(s => {
+      const k = scrobbleKey(s);
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+  }
+
+  // Multi-source path: deduplicate cross-platform mirror scrobbles (e.g. Spotify play also forwarded to Last.fm within ±180s)
+  const ordered = [...filtered].sort(
+    (a, b) =>
+      a.timestamp - b.timestamp ||
+      Number(Boolean(b.album)) - Number(Boolean(a.album)) ||
+      Number(Boolean(b.image)) - Number(Boolean(a.image)),
+  );
+  const seenExact = new Set<string>();
+  const kept: Scrobble[] = [];
+  const recentByTrack = new Map<string, Array<{ source: MusicSource; timestamp: number; keptIdx: number }>>();
+
+  for (const s of ordered) {
+    const k = scrobbleKey(s);
+    if (deduplicate && seenExact.has(k)) continue;
+    seenExact.add(k);
+
+    const src = scrobbleSrc(s);
+    const trackSig = JSON.stringify([normalize(s.artist), normalize(s.track)]);
+    const candidates = recentByTrack.get(trackSig);
+
+    if (candidates?.length) {
+      const matchIdx = candidates.findIndex(
+        c => c.source !== src && Math.abs(s.timestamp - c.timestamp) <= 180,
+      );
+      if (matchIdx >= 0) {
+        const matched = candidates[matchIdx];
+        candidates.splice(matchIdx, 1);
+        const target = kept[matched.keptIdx];
+        if ((!target.album && s.album) || (!target.image && s.image)) {
+          kept[matched.keptIdx] = {
+            ...target,
+            album: target.album || s.album,
+            image: target.image || s.image,
+          };
+        }
+        continue;
+      }
+    }
+
+    const keptIdx = kept.length;
+    kept.push(s);
+    const list = candidates ?? [];
+    list.push({ source: src, timestamp: s.timestamp, keptIdx });
+    recentByTrack.set(trackSig, list);
+  }
+
+  return kept;
+}
 
 function applyAliases(s: Scrobble, kind: Kind, aliases?: AliasRule[]): Scrobble {
   if (!aliases?.length) return s;
@@ -53,7 +145,14 @@ interface InternalHistory {
   run: ChartEntry['run'];
 }
 
-export function buildCharts(weeks: Week[], cached: CachedWeek[], kind: Kind, deduplicate = false, aliases?: AliasRule[]): ChartWeek[] {
+export function buildCharts(
+  weeks: Week[],
+  cached: CachedWeek[],
+  kind: Kind,
+  deduplicate = false,
+  aliases?: AliasRule[],
+  sourceFilter: SourceFilter = 'all',
+): ChartWeek[] {
   const data = new Map(cached.map(w => [w.week.id, w]));
   const history = new Map<string, InternalHistory>();
   let previous = new Map<string, number>();
@@ -72,13 +171,9 @@ export function buildCharts(weeks: Week[], cached: CachedWeek[], kind: Kind, ded
       return { ...week, status: 'missing', entries: [], plays: 0, unique: 0, provisional: true };
     }
     const counts = new Map<string, Item>();
-    const seen = new Set<string>();
     let plays = 0;
-    for (const s of raw.scrobbles) {
-      if (s.timestamp < week.start || s.timestamp >= week.end) continue;
-      const duplicateKey = scrobbleKey(s);
-      if (deduplicate && seen.has(duplicateKey)) continue;
-      seen.add(duplicateKey);
+    const weekScrobbles = selectScrobblesForFilter(raw.scrobbles, deduplicate, sourceFilter, week.start, week.end);
+    for (const s of weekScrobbles) {
       const item = itemOf(s, kind, aliases);
       if (!item) continue;
       plays++;
@@ -248,14 +343,17 @@ export function getItemAuditHistory(charts: ChartWeek[], itemId: string, fallbac
   };
 }
 
-export function getLibrary(weeks: CachedWeek[], kind: Kind, deduplicate = false, aliases?: AliasRule[]): Item[] {
+export function getLibrary(
+  weeks: CachedWeek[],
+  kind: Kind,
+  deduplicate = false,
+  aliases?: AliasRule[],
+  sourceFilter: SourceFilter = 'all',
+): Item[] {
   const items = new Map<string, Item>();
-  const seen = new Set<string>();
   for (const week of weeks) {
-    for (const s of week.scrobbles) {
-      const key = scrobbleKey(s);
-      if (deduplicate && seen.has(key)) continue;
-      seen.add(key);
+    const selected = selectScrobblesForFilter(week.scrobbles, deduplicate, sourceFilter, week.week.start, week.week.end);
+    for (const s of selected) {
       const item = itemOf(s, kind, aliases);
       if (!item) continue;
       const existing = items.get(item.id);

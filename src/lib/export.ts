@@ -31,7 +31,9 @@ export function parseBackup(text: string): { settings: Settings; weeks: CachedWe
         .map((r: NonNullable<Settings['aliases']>[number]) => ({ id: String(r.id ?? crypto.randomUUID()), kind: r.kind, artist: String(r.artist ?? '').slice(0, 300), from: r.from.slice(0, 300), to: r.to.slice(0, 300) }))
     : [];
   const avatar = typeof s.avatar === 'string' && /^[\w-]{1,40}$/.test(s.avatar) ? s.avatar : 'lastfm';
-  const settings: Settings = { ...defaults, user: s.user, startDate: s.startDate, timezone: s.timezone, theme: ['light','dark','system'].includes(s.theme) ? s.theme : 'system', deduplicate: s.deduplicate === true, reducedMotion: s.reducedMotion === true, apiKey: '', avatar, aliases };
+  const spotifyClientId = typeof s.spotifyClientId === 'string' ? s.spotifyClientId.slice(0, 120) : '';
+  const googleClientId = typeof s.googleClientId === 'string' ? s.googleClientId.slice(0, 180) : '';
+  const settings: Settings = { ...defaults, user: s.user, startDate: s.startDate, timezone: s.timezone, theme: ['light','dark','system'].includes(s.theme) ? s.theme : 'system', deduplicate: s.deduplicate === true, reducedMotion: s.reducedMotion === true, apiKey: '', avatar, aliases, spotifyClientId, googleClientId };
   const canonical = new Map(makeWeeks(settings).map(w => [w.id, w]));
   const ids = new Set<string>();
   const weeks = data.weeks.map((w: CachedWeek) => {
@@ -42,10 +44,11 @@ export function parseBackup(text: string): { settings: Settings; weeks: CachedWe
     const seen = new Set<string>();
     const scrobbles = w.scrobbles.map(s => {
       if (!s || !Number.isInteger(s.timestamp) || s.timestamp < week.start || s.timestamp >= w.cutoff || typeof s.artist !== 'string' || !s.artist || typeof s.track !== 'string' || !s.track || typeof s.album !== 'string') throw new Error('Scrobble inválido no backup.');
-      const key = JSON.stringify([s.timestamp, s.artist, s.track, s.album]);
+      const source = s.source === 'spotify' || s.source === 'ytmusic' ? s.source : undefined;
+      const key = JSON.stringify([s.timestamp, s.artist, s.track, s.album, source ?? 'lastfm']);
       if (seen.has(key)) duplicates++;
       seen.add(key);
-      return { timestamp: s.timestamp, artist: s.artist.slice(0,1000), track: s.track.slice(0,1000), album: s.album.slice(0,1000), image: typeof s.image === 'string' && /^https:\/\//.test(s.image) ? s.image : '' };
+      return { timestamp: s.timestamp, artist: s.artist.slice(0,1000), track: s.track.slice(0,1000), album: s.album.slice(0,1000), image: typeof s.image === 'string' && /^https:\/\//.test(s.image) ? s.image : '', ...(source ? { source } : {}) };
     });
     return { key: '', week, scrobbles, fetchedAt: w.fetchedAt, cutoff: w.cutoff, duplicates };
   });

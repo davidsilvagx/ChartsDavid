@@ -24,7 +24,7 @@ import {
   History,
   ImageDown,
   Library,
-  LoaderCircle,
+  Link2,
   Moon,
   Music2,
   Pause,
@@ -46,15 +46,41 @@ import {
   X,
 } from 'lucide-react';
 import { useData } from './lib/useData';
-import { type AliasRule, type ChartEntry, type ChartWeek, type Item, type Kind, type Profile, type Settings, studioDefaults } from './lib/types';
+import {
+  type AliasRule,
+  type ChartEntry,
+  type ChartWeek,
+  type Item,
+  type Kind,
+  type Profile,
+  type Settings,
+  type SourceFilter,
+  type SyncProgress,
+  type SyncScope,
+  studioDefaults,
+} from './lib/types';
 import { validateCalendar } from './lib/calendar';
-import { computeRecords, getCertification, getItemAuditHistory } from './lib/charts';
+import { computeRecords, getCertification, getItemAuditHistory, selectScrobblesForFilter } from './lib/charts';
 import { renderWeeklyShareCard, palettes } from './lib/canvas';
 import { resolveCatalogMedia } from './lib/catalog';
 import { backupJSON, chartCSV, download, parseBackup } from './lib/export';
 import { importWeeks } from './lib/storage';
-import { AmbientBackdrop, Cover, Change, Empty, MiniPlayer, Modal, Sparkline, number, useArtworkUrl, type PreviewPlayerState } from './components/UI';
+import {
+  AmbientBackdrop,
+  Cover,
+  Change,
+  Empty,
+  MiniPlayer,
+  Modal,
+  MusicLoader,
+  Sparkline,
+  SyncProgressCard,
+  number,
+  useArtworkUrl,
+  type PreviewPlayerState,
+} from './components/UI';
 import { AvatarPickerModal, ProfileAvatar, getAvatarLabel } from './components/Avatars';
+import { PlatformsHub, PlatformsModal, SourceFilterBar } from './components/Platforms';
 import { ChartCanvas } from './components/ChartCanvas';
 import { Studio } from './components/Studio';
 import './styles.css';
@@ -80,7 +106,22 @@ function App() {
   const [chartsTab, setChartsTab] = useState<'weekly' | 'records'>('weekly');
   const [kind, setKind] = useState<Kind>('tracks');
   const data = useData(kind);
-  const { settings, setSettings, charts, library, cached, profile, progress, computing, error, notice, weeks } = data;
+  const {
+    settings,
+    setSettings,
+    sourceFilter,
+    setSourceFilter,
+    sourceCounts,
+    charts,
+    library,
+    cached,
+    profile,
+    progress,
+    computing,
+    error,
+    notice,
+    weeks,
+  } = data;
 
   const [year, setYear] = useState('all');
   const [weekId, setWeekId] = useState('');
@@ -97,6 +138,8 @@ function App() {
   const [detail, setDetail] = useState<Item | null>(null);
   const [studioSeed, setStudioSeed] = useState<string[] | undefined>(undefined);
   const [exportingCard, setExportingCard] = useState(false);
+  const [importingBackup, setImportingBackup] = useState(false);
+  const [platformsModal, setPlatformsModal] = useState(false);
   const [help, setHelp] = useState(false);
   const [avatarModal, setAvatarModal] = useState(false);
   const [installHelp, setInstallHelp] = useState(false);
@@ -128,7 +171,8 @@ function App() {
   const heroArtwork = useArtworkUrl(player?.item ?? leader ?? null);
   const recent = useMemo(() => charts.filter(w => w.start <= (selected?.start ?? Infinity)).slice(-8), [charts, selected?.start]);
   const chartItems = useMemo(() => selected?.entries.slice(0, 5) ?? [], [selected]);
-  const totalScrobbles = useMemo(() => cached.reduce((sum, w) => sum + w.scrobbles.length, 0), [cached]);
+  const totalScrobbles = sourceCounts[sourceFilter];
+  const recentEightLoaded = useMemo(() => charts.slice(-8).filter(w => w.status === 'loaded').length, [charts]);
   const newEntries = selected?.entries.filter(e => e.change === 'NEW').length ?? 0;
   const largestRise = selected?.entries
     .filter(e => typeof e.change === 'number' && e.change > 0)
@@ -141,15 +185,19 @@ function App() {
   const artistCounts = useMemo(() => {
     const m = new Map<string, number>();
     const week = cached.find(w => w.week.id === selected?.id);
-    const seen = new Set<string>();
-    week?.scrobbles.forEach(s => {
-      const k = JSON.stringify([s.timestamp, s.artist, s.track, s.album]);
-      if (settings.deduplicate && seen.has(k)) return;
-      seen.add(k);
+    if (!week) return [];
+    const weekScrobbles = selectScrobblesForFilter(
+      week.scrobbles,
+      settings.deduplicate,
+      sourceFilter,
+      week.week.start,
+      week.week.end,
+    );
+    weekScrobbles.forEach(s => {
       m.set(s.artist, (m.get(s.artist) ?? 0) + 1);
     });
     return [...m].sort((a, b) => b[1] - a[1]).slice(0, 5);
-  }, [cached, selected?.id, settings.deduplicate]);
+  }, [cached, selected?.id, settings.deduplicate, sourceFilter]);
 
   const filteredLibrary = useMemo(
     () =>
@@ -363,7 +411,8 @@ function App() {
     download(new Blob([backupJSON(settings, cached, profile)], { type: 'application/json' }), `lastchart-backup-${settings.user}.json`);
 
   const loadBackup = async (file?: File) => {
-    if (!file) return;
+    if (!file || importingBackup) return;
+    setImportingBackup(true);
     try {
       if (file.size > 100 * 1024 * 1024) throw new Error('O backup deve ter menos de 100 MB.');
       const result = parseBackup(await file.text());
@@ -373,6 +422,8 @@ function App() {
       data.setNotice(`${result.weeks.length} semanas importadas de ${result.settings.user}.`);
     } catch (e) {
       data.setError(e instanceof Error ? e.message : 'Backup inválido.');
+    } finally {
+      setImportingBackup(false);
     }
   };
 
@@ -506,20 +557,8 @@ function App() {
               </button>
             </div>
           )}
-          {progress && (
-            <div className="sync-status" role="status">
-              <LoaderCircle className="spin" size={20} />
-              <div>
-                <strong>{progress.message}</strong>
-                <progress max={Math.max(1, progress.total)} value={progress.completed} />
-                <small>
-                  {progress.completed} de {progress.total} semanas · {progress.pages} páginas recebidas
-                </small>
-              </div>
-              <button type="button" className="button small" onClick={data.cancel}>
-                Pausar
-              </button>
-            </div>
+          {progress && page !== 'settings' && (
+            <SyncProgressCard progress={progress} onCancel={data.cancel} />
           )}
 
           <section className={`hero-banner ${page !== 'settings' && heroArtwork ? 'has-ambient' : ''}`}>
@@ -566,29 +605,37 @@ function App() {
                       ? 'Explore picos, variações, estreias, reentradas e gere cards prontos para compartilhar.'
                       : page === 'library'
                         ? 'Ouça prévias de 30s, filtre favoritos e acompanhe discos de Ouro, Platina e Diamante.'
-                        : 'Configure início de contagem, fuso horário, regras de mesclagem (aliases) e backups.'}
+                        : 'Configure início de contagem, plataformas (Last.fm, Spotify, YouTube Music), aliases e backups.'}
               </p>
             </div>
             {page !== 'settings' && (
               <div className="hero-cta-group">
                 <button
                   type="button"
-                  className="button primary sync-cta"
+                  className={`button primary sync-cta ${progress ? 'is-loading' : ''}`}
                   disabled={!!progress || !online}
                   onClick={() => data.sync('recent')}
                 >
-                  <History size={17} className={progress ? 'spin' : ''} />
-                  <span>{progress ? 'Sincronizando…' : cached.length ? 'Sincronizar semanas' : 'Conectar Last.fm'}</span>
+                  {progress ? <MusicLoader size="sm" tone="ink" /> : <History size={17} />}
+                  <span>{progress ? 'Sincronizando…' : cached.length ? 'Sincronizar Last.fm' : 'Conectar Last.fm'}</span>
+                </button>
+                <button
+                  type="button"
+                  className="button glass-btn"
+                  onClick={() => setPlatformsModal(true)}
+                >
+                  <Link2 size={16} />
+                  <span>Spotify & YT Music</span>
                 </button>
                 {known && !!selected?.entries.length && page !== 'studio' && (
                   <button
                     type="button"
-                    className="button glass-btn"
+                    className={`button glass-btn ${exportingCard ? 'is-loading' : ''}`}
                     disabled={exportingCard}
                     onClick={saveWeeklyCard}
                   >
-                    <ImageDown size={17} />
-                    <span>{exportingCard ? 'Gerando…' : 'Card Top 10'}</span>
+                    {exportingCard ? <MusicLoader size="sm" /> : <ImageDown size={17} />}
+                    <span>{exportingCard ? 'Gerando card…' : 'Card Top 10'}</span>
                   </button>
                 )}
               </div>
@@ -600,6 +647,11 @@ function App() {
               settings={settings}
               profile={profile}
               busy={!!progress}
+              progress={progress}
+              onCancelSync={data.cancel}
+              importingBackup={importingBackup}
+              sourceCounts={sourceCounts}
+              onDataChanged={data.refresh}
               setSettings={setSettings}
               onPickAvatar={() => setAvatarModal(true)}
               onSync={(scope, force) => data.sync(scope, force)}
@@ -608,6 +660,7 @@ function App() {
               onExport={exportBackup}
               onImport={loadBackup}
               loaded={cached.length}
+              recentEightLoaded={recentEightLoaded}
               total={weeks.length}
               duplicates={cached.reduce((n, w) => n + w.duplicates, 0)}
               years={years}
@@ -680,6 +733,14 @@ function App() {
                   </div>
                 )}
               </div>
+
+              <SourceFilterBar
+                value={sourceFilter}
+                counts={sourceCounts}
+                computing={computing}
+                onChange={setSourceFilter}
+                onOpenConnect={() => setPlatformsModal(true)}
+              />
 
               {page !== 'library' && (
                 <div className="year-strip" role="group" aria-label="Filtrar por ano">
@@ -837,7 +898,9 @@ function App() {
                               aria-label={`Ouvir prévia de ${leader.name}`}
                               onClick={() => void playPreview(leader)}
                             >
-                              {player?.item.id === leader.id && player.playing ? (
+                              {player?.loading && player.item.id === leader.id ? (
+                                <MusicLoader size="sm" />
+                              ) : player?.item.id === leader.id && player.playing ? (
                                 <Pause size={16} fill="currentColor" />
                               ) : (
                                 <Play size={16} fill="currentColor" />
@@ -846,12 +909,12 @@ function App() {
                           )}
                           <button
                             type="button"
-                            className="round-action primary-round"
+                            className={`round-action primary-round ${!leader && progress ? 'is-loading' : ''}`}
                             aria-label={leader ? 'Ver histórico completo do número um' : 'Sincronizar agora'}
                             onClick={() => (leader ? setDetail(leader) : data.sync('recent'))}
                             disabled={!!progress}
                           >
-                            <ArrowUpRight size={17} />
+                            {!leader && progress ? <MusicLoader size="sm" tone="ink" /> : <ArrowUpRight size={17} />}
                           </button>
                         </div>
                       </div>
@@ -907,24 +970,36 @@ function App() {
                           onDetail={setDetail}
                           onPreview={playPreview}
                           playingId={player?.playing ? player.item.id : undefined}
+                          loadingId={player?.loading ? player.item.id : undefined}
                           favorites={favorites}
                           onFavorite={favorite}
                           compact
                         />
                       ) : (
                         <Empty
-                          title={known ? 'Semana sem reproduções' : 'Conecte seu histórico Last.fm'}
+                          title={known ? 'Semana sem reproduções' : 'Conecte seu histórico musical'}
                           description={
                             known
-                              ? 'Nenhum scrobble registrado entre sexta 00:00 e quinta 23:59 neste período.'
-                              : 'Baixe as semanas recentes com um toque para gerar tabelas ZeroCharts, prévias de áudio e animações.'
+                              ? 'Nenhum play registrado entre sexta 00:00 e quinta 23:59 na plataforma filtrada.'
+                              : 'Baixe as semanas recentes do Last.fm ou importe seu histórico do Spotify / YouTube Music.'
                           }
                           action={
                             !known ? (
-                              <button type="button" className="button primary" disabled={!!progress} onClick={() => data.sync('recent')}>
-                                <History size={16} />
-                                <span>Sincronizar últimas semanas</span>
-                              </button>
+                              <div className="inline-actions">
+                                <button
+                                  type="button"
+                                  className={`button primary ${progress ? 'is-loading' : ''}`}
+                                  disabled={!!progress}
+                                  onClick={() => data.sync('recent')}
+                                >
+                                  {progress ? <MusicLoader size="sm" tone="ink" /> : <History size={16} />}
+                                  <span>{progress ? 'Sincronizando…' : 'Sincronizar Last.fm'}</span>
+                                </button>
+                                <button type="button" className="button" onClick={() => setPlatformsModal(true)}>
+                                  <Link2 size={16} />
+                                  <span>Spotify / YT Music</span>
+                                </button>
+                              </div>
                             ) : undefined
                           }
                         />
@@ -1063,12 +1138,12 @@ function App() {
                           </button>
                           <button
                             type="button"
-                            className="button small"
+                            className={`button small ${exportingCard ? 'is-loading' : ''}`}
                             disabled={!known || !entries.length || exportingCard}
                             onClick={saveWeeklyCard}
                           >
-                            <ImageDown size={15} />
-                            <span>Card PNG</span>
+                            {exportingCard ? <MusicLoader size="sm" /> : <ImageDown size={15} />}
+                            <span>{exportingCard ? 'Gerando…' : 'Card PNG'}</span>
                           </button>
                           <button type="button" className="button small" disabled={!known || !entries.length} onClick={saveCSV}>
                             <Download size={15} />
@@ -1083,6 +1158,7 @@ function App() {
                           onDetail={setDetail}
                           onPreview={playPreview}
                           playingId={player?.playing ? player.item.id : undefined}
+                          loadingId={player?.loading ? player.item.id : undefined}
                           onAnimate={item => sendToStudio([item.id])}
                           favorites={favorites}
                           onFavorite={favorite}
@@ -1090,16 +1166,16 @@ function App() {
                       ) : (
                         <Empty
                           title="Esta semana ainda não foi sincronizada"
-                          description="Semanas não baixadas são tratadas como lacunas reais (nunca como zero). Sincronize o ano para calcular este chart."
+                          description="Semanas não baixadas são tratadas como lacunas reais (nunca como zero). Sincronize o ano ou importe dados do Spotify/YT Music."
                           action={
                             <button
                               type="button"
-                              className="button primary"
+                              className={`button primary ${progress ? 'is-loading' : ''}`}
                               disabled={!!progress}
                               onClick={() => data.sync(selected?.year ?? 'recent')}
                             >
-                              <History size={16} />
-                              <span>Sincronizar {selected?.year}</span>
+                              {progress ? <MusicLoader size="sm" tone="ink" /> : <History size={16} />}
+                              <span>{progress ? `Sincronizando ${selected?.year}…` : `Sincronizar ${selected?.year}`}</span>
                             </button>
                           }
                         />
@@ -1175,6 +1251,7 @@ function App() {
                     {filteredLibrary.slice(0, libraryLimit).map(item => {
                       const cert = getCertification(item.plays);
                       const isPlaying = player?.playing && player.item.id === item.id;
+                      const isLoadingAudio = player?.loading && player.item.id === item.id;
                       return (
                         <article className="library-item" key={item.id}>
                           <div className="library-cover-wrap">
@@ -1188,7 +1265,13 @@ function App() {
                               aria-label={`Ouvir prévia de ${item.name}`}
                               onClick={() => void playPreview(item)}
                             >
-                              {isPlaying ? <Pause size={15} fill="currentColor" /> : <Play size={15} fill="currentColor" />}
+                              {isLoadingAudio ? (
+                                <MusicLoader size="sm" tone="ink" />
+                              ) : isPlaying ? (
+                                <Pause size={15} fill="currentColor" />
+                              ) : (
+                                <Play size={15} fill="currentColor" />
+                              )}
                             </button>
                           </div>
                           <button type="button" className="item-title" onClick={() => setDetail(item)}>
@@ -1236,7 +1319,14 @@ function App() {
               <span>LastChart Studio Pro · Projeto independente</span>
             </span>
             <span>
-              {computing ? 'Processando charts em Web Worker…' : `${loaded.length} de ${weeks.length} semanas carregadas`}
+              {computing ? (
+                <>
+                  <MusicLoader size="sm" />
+                  <span>Processando charts em Web Worker…</span>
+                </>
+              ) : (
+                `${loaded.length} de ${weeks.length} semanas carregadas`
+              )}
               <span className="footer-dot">·</span>
               <button type="button" className="text-button" onClick={() => setHelp(true)}>
                 Sobre regras e dados
@@ -1268,6 +1358,7 @@ function App() {
           item={detail}
           charts={charts}
           playing={!!(player && player.item.id === detail.id && player.playing)}
+          loadingAudio={!!(player && player.item.id === detail.id && player.loading)}
           onClose={() => setDetail(null)}
           onPreview={() => void playPreview(detail)}
           onAnimate={() => {
@@ -1277,6 +1368,22 @@ function App() {
           }}
           favorite={favorites.includes(detail.id)}
           onFavorite={() => favorite(detail.id)}
+        />
+      )}
+
+      {platformsModal && (
+        <PlatformsModal
+          settings={settings}
+          setSettings={setSettings}
+          counts={sourceCounts}
+          sourceFilter={sourceFilter}
+          onSelectFilter={setSourceFilter}
+          syncingLastfm={!!progress}
+          onSyncLastfm={() => void data.sync('recent')}
+          onDataChanged={data.refresh}
+          onNotice={data.setNotice}
+          onError={data.setError}
+          onClose={() => setPlatformsModal(false)}
         />
       )}
 
@@ -1361,6 +1468,7 @@ function Ranking({
   onDetail,
   onPreview,
   playingId,
+  loadingId,
   onAnimate,
   favorites,
   onFavorite,
@@ -1370,6 +1478,7 @@ function Ranking({
   onDetail: (i: Item) => void;
   onPreview: (i: Item) => void;
   playingId?: string;
+  loadingId?: string;
   onAnimate?: (i: Item) => void;
   favorites: string[];
   onFavorite: (id: string) => void;
@@ -1395,6 +1504,7 @@ function Ranking({
         <tbody>
           {entries.map(e => {
             const isPlaying = playingId === e.id;
+            const isLoadingAudio = loadingId === e.id;
             return (
               <tr key={e.id} className={e.rank === 1 ? 'is-leader' : e.rank <= 10 ? 'is-top10' : ''}>
                 <td className="rank-cell">
@@ -1437,7 +1547,13 @@ function Ranking({
                       aria-label={`Ouvir prévia de ${e.name}`}
                       onClick={() => onPreview(e)}
                     >
-                      {isPlaying ? <Pause size={15} fill="currentColor" /> : <Volume2 size={15} />}
+                      {isLoadingAudio ? (
+                        <MusicLoader size="sm" />
+                      ) : isPlaying ? (
+                        <Pause size={15} fill="currentColor" />
+                      ) : (
+                        <Volume2 size={15} />
+                      )}
                     </button>
                     {onAnimate && !compact && (
                       <button
@@ -1576,6 +1692,7 @@ function Detail({
   item,
   charts,
   playing,
+  loadingAudio = false,
   onClose,
   onPreview,
   onAnimate,
@@ -1585,6 +1702,7 @@ function Detail({
   item: Item;
   charts: ChartWeek[];
   playing: boolean;
+  loadingAudio?: boolean;
   onClose: () => void;
   onPreview: () => void;
   onAnimate: () => void;
@@ -1611,8 +1729,14 @@ function Detail({
           <h3>{item.album || item.artist}</h3>
           <div className="detail-quick-actions">
             <button type="button" className="button apple-play-btn small" onClick={onPreview}>
-              {playing ? <Pause size={15} fill="currentColor" /> : <Play size={15} fill="currentColor" />}
-              <span>{playing ? 'Pausar prévia' : 'Prévia 30s'}</span>
+              {loadingAudio ? (
+                <MusicLoader size="sm" tone="ink" />
+              ) : playing ? (
+                <Pause size={15} fill="currentColor" />
+              ) : (
+                <Play size={15} fill="currentColor" />
+              )}
+              <span>{loadingAudio ? 'Carregando…' : playing ? 'Pausar prévia' : 'Prévia 30s'}</span>
             </button>
             <button type="button" className="button apple-glass-pill small" onClick={onAnimate}>
               <Film size={14} />
@@ -1738,12 +1862,18 @@ function SettingsPage({
   setSettings,
   onPickAvatar,
   busy,
+  progress,
+  onCancelSync,
+  importingBackup,
+  sourceCounts,
+  onDataChanged,
   onSync,
   onError,
   onNotice,
   onExport,
   onImport,
   loaded,
+  recentEightLoaded,
   total,
   duplicates,
   years,
@@ -1754,12 +1884,18 @@ function SettingsPage({
   setSettings: (s: Settings) => void;
   onPickAvatar: () => void;
   busy: boolean;
-  onSync: (scope: 'recent' | 'all' | number, force?: boolean) => void;
+  progress: SyncProgress | null;
+  onCancelSync: () => void;
+  importingBackup: boolean;
+  sourceCounts: Record<SourceFilter, number>;
+  onDataChanged: () => void;
+  onSync: (scope: SyncScope, force?: boolean) => void;
   onError: (s: string) => void;
   onNotice: (s: string) => void;
   onExport: () => void;
   onImport: (f?: File) => void;
   loaded: number;
+  recentEightLoaded: number;
   total: number;
   duplicates: number;
   years: number[];
@@ -1771,6 +1907,20 @@ function SettingsPage({
   const [aliasArtist, setAliasArtist] = useState('');
   const [aliasFrom, setAliasFrom] = useState('');
   const [aliasTo, setAliasTo] = useState('');
+
+  const recentTarget = Math.min(8, Math.max(1, total));
+  const recentPct = Math.min(100, Math.round((recentEightLoaded / recentTarget) * 100));
+  const archivePct =
+    loaded <= 0
+      ? 0
+      : loaded >= total
+        ? 100
+        : Math.max(1, Math.round((loaded / Math.max(1, total)) * 100));
+
+  const isSyncingRecent = !!progress && progress.scope === 'recent';
+  const isSyncingYear = !!progress && typeof progress.scope === 'number';
+  const isSyncingAll = !!progress && progress.scope === 'all' && !progress.force;
+  const isRevalidating = !!progress && progress.scope === 'all' && !!progress.force;
 
   useEffect(() => {
     setDraft(d => ({
@@ -2005,39 +2155,97 @@ function SettingsPage({
                 <span>Sincronização & Arquivo</span>
               </h2>
               <p>
-                {loaded} de {total} semanas sincronizadas ({Math.round((loaded / Math.max(1, total)) * 100)}%)
+                {loaded > 0
+                  ? `${number(loaded)} semanas salvas localmente · Janela recente: ${recentPct}% pronta`
+                  : 'Baixe suas semanas recentes ou sincronize todo o histórico desde 2016.'}
               </p>
             </div>
           </div>
           <div className="settings-content">
-            <progress max={Math.max(total, 1)} value={loaded} />
+            {progress && <SyncProgressCard progress={progress} onCancel={onCancelSync} compact />}
+
+            <div className="archive-coverage-grid">
+              <div className="coverage-card">
+                <div className="coverage-top">
+                  <span>Últimas 8 semanas</span>
+                  <strong>{recentPct}%</strong>
+                </div>
+                <div className="musical-progress-track">
+                  <span className="musical-progress-fill" style={{ width: `${recentPct}%` }} />
+                </div>
+                <small>
+                  {recentEightLoaded} de {recentTarget} semanas recentes baixadas
+                </small>
+              </div>
+
+              <div className="coverage-card">
+                <div className="coverage-top">
+                  <span>Arquivo 2016–hoje</span>
+                  <strong>{archivePct}%</strong>
+                </div>
+                <div className="musical-progress-track">
+                  <span className="musical-progress-fill" style={{ width: `${archivePct}%` }} />
+                </div>
+                <small>
+                  {number(loaded)} de {number(total)} semanas totais no IndexedDB
+                </small>
+              </div>
+            </div>
+
             <p className="muted small-text">
-              Download em lotes paralelos otimizados com retomada automática no IndexedDB. Você pode pausar quando quiser.
+              Download em lotes paralelos otimizados com salvamento em tempo real no IndexedDB. Você pode pausar e continuar quando quiser.
             </p>
+
             <div className="sync-grid-btns">
-              <button type="button" className="button primary full" disabled={busy} onClick={() => onSync('recent')}>
-                <History size={16} />
-                <span>Sincronizar últimas 8 semanas</span>
+              <button
+                type="button"
+                className={`button primary full ${isSyncingRecent ? 'is-loading' : ''}`}
+                disabled={busy}
+                onClick={() => onSync('recent')}
+              >
+                {isSyncingRecent ? <MusicLoader size="sm" tone="ink" /> : <History size={16} />}
+                <span>{isSyncingRecent ? 'Sincronizando últimas 8 semanas…' : 'Sincronizar últimas 8 semanas'}</span>
               </button>
               <div className="year-sync-row">
-                <select aria-label="Escolher ano para sincronizar" value={syncYear} onChange={e => setSyncYear(Number(e.target.value))}>
+                <select
+                  aria-label="Escolher ano para sincronizar"
+                  value={syncYear}
+                  disabled={busy}
+                  onChange={e => setSyncYear(Number(e.target.value))}
+                >
                   {years.map(y => (
                     <option key={y} value={y}>
                       Ano {y}
                     </option>
                   ))}
                 </select>
-                <button type="button" className="button" disabled={busy} onClick={() => onSync(syncYear)}>
-                  <ArrowDownToLine size={16} />
-                  <span>Baixar {syncYear}</span>
+                <button
+                  type="button"
+                  className={`button ${isSyncingYear ? 'is-loading' : ''}`}
+                  disabled={busy}
+                  onClick={() => onSync(syncYear)}
+                >
+                  {isSyncingYear ? <MusicLoader size="sm" /> : <ArrowDownToLine size={16} />}
+                  <span>{isSyncingYear ? `Baixando ${progress?.scope}…` : `Baixar ${syncYear}`}</span>
                 </button>
               </div>
-              <button type="button" className="button full" disabled={busy} onClick={() => onSync('all')}>
-                <ArrowDownToLine size={16} />
-                <span>Baixar todo o histórico (2016–hoje)</span>
+              <button
+                type="button"
+                className={`button full ${isSyncingAll ? 'is-loading' : ''}`}
+                disabled={busy}
+                onClick={() => onSync('all')}
+              >
+                {isSyncingAll ? <MusicLoader size="sm" /> : <ArrowDownToLine size={16} />}
+                <span>{isSyncingAll ? 'Baixando histórico completo…' : 'Baixar todo o histórico (2016–hoje)'}</span>
               </button>
-              <button type="button" className="button full" disabled={busy} onClick={() => onSync('all', true)}>
-                <span>Revalidar todas as semanas</span>
+              <button
+                type="button"
+                className={`button full ${isRevalidating ? 'is-loading' : ''}`}
+                disabled={busy}
+                onClick={() => onSync('all', true)}
+              >
+                {isRevalidating ? <MusicLoader size="sm" /> : null}
+                <span>{isRevalidating ? 'Revalidando todas as semanas…' : 'Revalidar todas as semanas'}</span>
               </button>
             </div>
 
@@ -2046,13 +2254,13 @@ function SettingsPage({
                 <Download size={16} />
                 <span>Exportar JSON</span>
               </button>
-              <label className={`button file-button ${busy ? 'disabled' : ''}`}>
-                <Upload size={16} />
-                <span>Importar JSON</span>
+              <label className={`button file-button ${busy || importingBackup ? 'disabled is-loading' : ''}`}>
+                {importingBackup ? <MusicLoader size="sm" /> : <Upload size={16} />}
+                <span>{importingBackup ? 'Importando…' : 'Importar JSON'}</span>
                 <input
                   type="file"
                   accept="application/json,.json"
-                  disabled={busy}
+                  disabled={busy || importingBackup}
                   onChange={e => {
                     onImport(e.target.files?.[0]);
                     e.target.value = '';
@@ -2060,6 +2268,30 @@ function SettingsPage({
                 />
               </label>
             </div>
+          </div>
+        </section>
+
+        <section className="panel">
+          <div className="panel-heading">
+            <div>
+              <h2>
+                <Link2 size={19} />
+                <span>Conexões de Streaming</span>
+              </h2>
+              <p>Conecte ou importe Spotify e YouTube Music além do Last.fm para combinar ou filtrar seus charts.</p>
+            </div>
+          </div>
+          <div className="settings-content">
+            <PlatformsHub
+              settings={settings}
+              setSettings={setSettings}
+              counts={sourceCounts}
+              syncingLastfm={busy}
+              onSyncLastfm={() => onSync('recent')}
+              onDataChanged={onDataChanged}
+              onNotice={onNotice}
+              onError={onError}
+            />
           </div>
         </section>
 
