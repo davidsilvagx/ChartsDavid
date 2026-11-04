@@ -1,32 +1,36 @@
 import { useEffect, useMemo, useState, type ReactElement } from 'react';
-import { ArrowDownRight, ArrowUpRight, Download, Film, History, Medal, Sparkles, Trophy, Users } from 'lucide-react';
+import { ArrowDownRight, ArrowUpRight, Download, Film, Fingerprint, History, Medal, Sparkles, Trophy, Users } from 'lucide-react';
 import type { CachedWeek, ChartWeek, Item, Kind, Settings, SourceFilter } from '../lib/types';
 import type { buildSpotlight } from '../lib/spotlight';
 import { download, shareCardPDF } from '../lib/export';
 import { renderSpotlightCard } from '../lib/spotlightShare';
 import { loadMetadata, type EffectiveMeta } from '../lib/metadata';
 import type { RevealCard } from '../lib/ballot';
+import type { ItemStats } from '../lib/jury';
 import { Cover, Empty, Modal, MusicLoader, number, useArtworkUrl } from './UI';
 import { Awards } from './Awards';
 import { Compare } from './Compare';
+import { MusicProfile } from './MusicProfile';
 import { GramophoneIcon } from './Gramophone';
 
 type SpotlightData=ReturnType<typeof buildSpotlight>;
-type Tab='chart'|'awards'|'records'|'insights'|'compare';
+export type SpotlightTab='chart'|'awards'|'profile'|'records'|'insights'|'compare';
+type Tab=SpotlightTab;
 export { GramophoneIcon } from './Gramophone';
 
-export function Spotlight({charts,library,cached,settings,source,owner,namespace,initialYear,dark,reduced,kind,timezone,onClose,onStudio,onDownload}:{
-  charts:ChartWeek[];library:Item[];cached:CachedWeek[];settings:Settings;source:SourceFilter;owner:string;namespace:string;initialYear:string;dark:boolean;reduced:boolean;kind:Kind;timezone:string;onClose:()=>void;
+export function Spotlight({charts,library,cached,settings,source,owner,namespace,initialYear,initialTab='chart',dark,reduced,kind,timezone,onClose,onStudio,onDownload}:{
+  initialTab?:SpotlightTab;charts:ChartWeek[];library:Item[];cached:CachedWeek[];settings:Settings;source:SourceFilter;owner:string;namespace:string;initialYear:string;dark:boolean;reduced:boolean;kind:Kind;timezone:string;onClose:()=>void;
   onStudio:(ids:string[],title:string,charts:ChartWeek[],library:Item[],top:number)=>void;onDownload:(year:string)=>void;
 }){
   const years=useMemo(()=>[...new Set(charts.map(chart=>chart.year))].sort((a,b)=>b-a),[charts]);
-  const [year,setYear]=useState(initialYear),[tab,setTab]=useState<Tab>('chart');
+  const [year,setYear]=useState(initialYear),[tab,setTab]=useState<Tab>(initialTab);
   const key=`spotlight-name:v1:${namespace.toLowerCase()}`;
   const [name,setName]=useState(()=>{try{return localStorage.getItem(key)||`${owner} · ${kind==='tracks'?'Hot 100':kind==='albums'?'Top Albums':'Top Artists'}`;}catch{return `${owner} · Hot 100`;}});
   const [top,setTop]=useState(20),[data,setData]=useState<SpotlightData|null>(null),[error,setError]=useState(''),[loading,setLoading]=useState(true);
   const [exporting,setExporting]=useState(false),[category,setCategory]=useState(0);
-  const [pools,setPools]=useState<Partial<Record<Kind,Item[]>>|null>(null),[poolError,setPoolError]=useState('');
+  const [pools,setPools]=useState<Partial<Record<Kind,Item[]>>|null>(null),[stats,setStats]=useState<Partial<Record<Kind,Record<string,ItemStats>>>>({}),[poolError,setPoolError]=useState('');
   const [meta,setMeta]=useState<Partial<Record<Kind,Map<string,EffectiveMeta>>>>({});
+  const reloadMeta=()=>Promise.all((['tracks','albums','artists'] as Kind[]).map(async k=>[k,await loadMetadata(k)] as const)).then(entries=>setMeta(Object.fromEntries(entries))).catch(()=>{});
   const chosen=useMemo(()=>charts.filter(chart=>year==='all'||chart.year===Number(year)),[charts,year]);
   useEffect(()=>{
     let active=true;setLoading(true);setData(null);setError('');setCategory(0);
@@ -41,10 +45,10 @@ export function Spotlight({charts,library,cached,settings,source,owner,namespace
     if(tab!=='awards')return;
     let active=true;setPools(null);setPoolError('');
     const worker=new Worker(new URL('../workers/pools.worker.ts',import.meta.url),{type:'module'});
-    worker.onmessage=({data})=>{if(!active)return;if(data.error)setPoolError(data.error);else setPools(data.pools);worker.terminate();};
+    worker.onmessage=({data})=>{if(!active)return;if(data.error)setPoolError(data.error);else{setPools(data.pools);setStats(data.stats??{});}worker.terminate();};
     worker.onerror=()=>{if(active)setPoolError('Não foi possível reunir os indicados deste período.');worker.terminate();};
     worker.postMessage({cached:cached.filter(week=>year==='all'||week.week.year===Number(year)),deduplicate:settings.deduplicate,aliases:settings.aliases,source});
-    void Promise.all((['tracks','albums','artists'] as Kind[]).map(async k=>[k,await loadMetadata(k)] as const)).then(entries=>{if(active)setMeta(Object.fromEntries(entries));}).catch(()=>{});
+    void reloadMeta();
     return()=>{active=false;worker.terminate();};
   },[tab,cached,year,settings.deduplicate,settings.aliases,source]);
   const title=name.trim()||`${owner} · Hot 100`,record=data?.awards[category];
@@ -63,16 +67,17 @@ export function Spotlight({charts,library,cached,settings,source,owner,namespace
     try{const canvas=await renderSpotlightCard({title,owner,period:range,items:card.winners.slice(0,1),dark,coverage,award:card.winners.length>1?`${card.category.label} · empate`:card.category.label,official:card.category.official,basis:card.method==='vote'?'voto pessoal':'sugestão aceita'});download(await toBlob(canvas,pdf),`lastchart-premio-${card.category.id}.${pdf?'pdf':'png'}`);}
     catch(e){setError(e instanceof Error?e.message:'Não foi possível exportar.');}
   };
-  const tabs:Array<[Tab,string,ReactElement]>=[['chart','Seu chart',<Trophy size={16}/>],['awards','Premiação',<GramophoneIcon size={19}/>],['records','Recordes',<Medal size={16}/>],['insights','Insights',<Sparkles size={16}/>],['compare','Comparar',<Users size={16}/>]];
+  const tabs:Array<[Tab,string,ReactElement]>=[['chart','Seu chart',<Trophy size={16}/>],['awards','Premiação',<GramophoneIcon size={19}/>],['profile','Seu perfil',<Fingerprint size={16}/>],['records','Recordes',<Medal size={16}/>],['insights','Insights',<Sparkles size={16}/>],['compare','Comparar',<Users size={16}/>]];
   return <Modal title="Charts & prêmios" subtitle="Spotlight · Seu universo musical, com uma assinatura só sua." onClose={onClose} wide className="spotlight-dialog" ambientImage={backdrop}>
     <div className="spotlight">
       <div className="spotlight-hero">{data?.ranking[0]&&<div className="spotlight-hero-art"><Cover item={data.ranking[0]} size="large"/></div>}<div className="spotlight-hero-copy"><span className="eyebrow"><Sparkles size={13}/> EDIÇÃO PESSOAL</span><h3>{title}</h3><p>{range}</p><small>Charts e prêmios pessoais; sem vínculo com Billboard ou Grammy.</small></div></div>
-      <div className="spotlight-controls"><label>Nome da sua edição<input aria-label="Nome da edição Spotlight" value={name} maxLength={48} onChange={e=>{setName(e.target.value);try{localStorage.setItem(key,e.target.value);}catch{/* optional preference */}}}/></label><label>Época<select aria-label="Ano do Spotlight" value={year} onChange={e=>setYear(e.target.value)}><option value="all">Todo o histórico</option>{years.map(y=><option key={y} value={y}>{y}</option>)}</select></label></div>
-      <details className="period-help"><summary>Como criar meu chart ou minha premiação?</summary><p>Escolha a época. Em Seu chart, ajuste o Top e anime a edição. Em Premiação, escolha categorias com os nomes do Grammy, vote e comece a cerimônia. Recordes mostram estatísticas do período; Insights, seus hábitos; Comparar, outro perfil no mesmo intervalo.</p></details>
+      {tab!=='profile'&&<div className="spotlight-controls"><label>Nome da sua edição<input aria-label="Nome da edição Spotlight" value={name} maxLength={48} onChange={e=>{setName(e.target.value);try{localStorage.setItem(key,e.target.value);}catch{/* optional preference */}}}/></label><label>Época<select aria-label="Ano do Spotlight" value={year} onChange={e=>setYear(e.target.value)}><option value="all">Todo o histórico</option>{years.map(y=><option key={y} value={y}>{y}</option>)}</select></label></div>}
+      <details className="period-help"><summary>Como criar meu chart ou minha premiação?</summary><p>Escolha a época. Em Seu chart, ajuste o Top e anime a edição. Em Premiação, escolha categorias com os nomes do Grammy, vote ou deixe o júri decidir, e comece a cerimônia. Seu perfil mostra seu tipo de ouvinte, selos e signo musical. Recordes mostram estatísticas do período; Insights, seus hábitos; Comparar, outro perfil no mesmo intervalo.</p></details>
       <div className="spotlight-tabs" role="tablist" aria-label="Conteúdo do Spotlight">{tabs.map(([value,label,icon])=><button type="button" role="tab" className={`button small ${tab===value?'primary':''}`} key={value} aria-selected={tab===value} onClick={()=>setTab(value)}>{icon}<span>{label}</span></button>)}</div>
       {error&&<p className="alert error" role="alert">{error}</p>}
-      {tab==='compare'?<Compare settings={settings} cached={cached} owner={settings.user} year={year} source={source} dark={dark}/>:
-      tab==='awards'?<Awards profile={namespace} period={year} periodLabel={`${range} · ${coverage}`} title={title} pools={pools} meta={meta} loading={!pools&&!poolError} error={poolError} reduced={reduced} onExport={shareAward}/>:
+      {tab==='profile'?<MusicProfile cached={cached} settings={settings} source={source} library={library} owner={owner} dark={dark}/>:
+      tab==='compare'?<Compare settings={settings} cached={cached} owner={settings.user} year={year} source={source} dark={dark}/>:
+      tab==='awards'?<Awards profile={namespace} period={year} periodLabel={`${range} · ${coverage}`} title={title} pools={pools} stats={stats} meta={meta} window={year==='all'?null:data?.first?{start:data.first.start,end:Math.min(data.last!.end,Date.now()/1000),year:Number(year)}:null} apiKey={settings.apiKey} onMetaRefresh={reloadMeta} loading={!pools&&!poolError} error={poolError} reduced={reduced} onExport={shareAward}/>:
       loading?<div className="spotlight-loading" role="status"><MusicLoader size="md"/><span>Preparando sua edição com dados reais…</span></div>:!data?.ranking.length?<Empty title="Esta edição ainda não tem dados" description={data?.missing?'Há semanas que ainda precisam ser baixadas. Isso não significa ausência de reproduções.':'Nenhuma reprodução encontrada nas semanas deste período e na fonte selecionada.'} action={<button type="button" className="button" onClick={()=>onDownload(year)}>Sincronizar este período</button>}/>:<>
         {(data.missing>0||data.partial)&&<p className="note">{data.missing?`${data.missing} semanas não baixadas. Resultados parciais; lacunas não viram zero.`:'Inclui o período atual ou dados parciais. Os resultados podem mudar após sincronizar.'}</p>}
         {tab==='chart'&&<>

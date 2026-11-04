@@ -22,7 +22,8 @@ const memoryCache = new Map<string, CatalogMedia | null>();
 const inflight = new Map<string, Promise<CatalogMedia | null>>();
 
 function itemCacheKey(item: Pick<Item, 'id' | 'name' | 'artist' | 'album'>): string {
-  return `catalog:v1:${normalize(item.artist)}::${normalize(item.name)}`;
+  // v2 para álbuns: agora guardam a prévia de uma faixa do próprio álbum.
+  return item.id.startsWith('["albums"') ? `catalog:v2:album:${normalize(item.artist)}::${normalize(item.name)}` : `catalog:v1:${normalize(item.artist)}::${normalize(item.name)}`;
 }
 
 function artistMatches(candidate: string, target: string): boolean {
@@ -70,13 +71,24 @@ export async function resolveCatalogMedia(item: Pick<Item, 'id' | 'name' | 'arti
     const query = isArtistItem ? item.artist : `${item.artist} ${item.name}`;
     const entity = isAlbumItem ? 'album' : 'song';
 
+    const search = async (term: string, kind: string) => {
+      const res = await fetch(`/api/itunes?${new URLSearchParams({ term, entity: kind })}`, { signal: AbortSignal.timeout(9000) });
+      if (!res.ok) throw new Error('catalog');
+      return ((await res.json()) as { results?: ItunesResult[] }).results ?? [];
+    };
     try {
-      const res = await fetch(`/api/itunes?${new URLSearchParams({ term: query, entity })}`, {
-        signal: AbortSignal.timeout(9000),
-      });
-      if (!res.ok) return null;
-      const body = (await res.json()) as { results?: ItunesResult[] };
-      const results = body.results ?? [];
+      // Álbuns: o catálogo de álbuns não traz prévia; buscamos uma faixa cujo álbum é o mesmo e usamos a prévia dela.
+      if (isAlbumItem) {
+        const songs = await search(`${item.artist} ${item.name}`, 'song');
+        const track = songs.find(r => artistMatches(r.artistName, item.artist) && titleMatches(r.collectionName, item.name) && r.previewUrl);
+        if (track) {
+          const media: CatalogMedia = { artworkUrl: track.artworkUrl || '', previewUrl: track.previewUrl, trackViewUrl: track.trackViewUrl || '', trackName: track.trackName };
+          memoryCache.set(key, media);
+          try { await putMeta(key, media); } catch { /* cache opcional */ }
+          return media;
+        }
+      }
+      const results = await search(query, entity);
 
       let match: ItunesResult | undefined;
       if (isArtistItem) {

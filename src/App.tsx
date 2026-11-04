@@ -83,35 +83,45 @@ import {
   number,
   useArtworkUrl,
   type PreviewPlayerState,
+  previewKnownMissing,
 } from './components/UI';
 import { AvatarPickerModal, ProfileAvatar, getAvatarLabel } from './components/Avatars';
 import { PlatformsHub, PlatformsModal, SourceFilterBar } from './components/Platforms';
 import { ChartCanvas } from './components/ChartCanvas';
 import { GramophoneIcon } from './components/Gramophone';
+import { NavCharts, NavExtras, NavHome, NavLibrary, NavSettings, NavStudio } from './components/NavIcons';
+import type { ExtrasTarget } from './components/Extras';
+import { shareInvite } from './lib/invite';
+import type { SpotlightTab } from './components/Spotlight';
 import { emptyMetaFilter, metaMatches, type MetaFilter } from './lib/metaFilter';
 import type { EffectiveMeta } from './lib/metadata';
+import { personalAwards } from './lib/achievements';
+import { weekHeadlines } from './lib/press';
 import { artworkColor, chromeFor, setChromeBase } from './lib/chrome';
 import { NotificationsPanel, useMilestoneNotifications } from './components/Notifications';
 import './styles.css';
 
-type Page = 'overview' | 'charts' | 'studio' | 'library' | 'settings';
+type Page = 'overview' | 'charts' | 'studio' | 'extras' | 'library' | 'settings';
 interface InstallPrompt extends Event {
   prompt: () => Promise<void>;
   userChoice: Promise<{ outcome: string }>;
 }
 
 const nav = [
-  { id: 'overview', label: 'Visão geral', shortLabel: 'Início', icon: Grid2X2 },
-  { id: 'charts', label: 'Meus charts', shortLabel: 'Charts', icon: BarChart3 },
-  { id: 'studio', label: 'Estúdio', shortLabel: 'Estúdio', icon: Film },
-  { id: 'library', label: 'Biblioteca', shortLabel: 'Acervo', icon: Library },
-  { id: 'settings', label: 'Ajustes', shortLabel: 'Ajustes', icon: Settings2 },
+  { id: 'overview', label: 'Visão geral', shortLabel: 'Início', icon: NavHome },
+  { id: 'charts', label: 'Meus charts', shortLabel: 'Charts', icon: NavCharts },
+  { id: 'studio', label: 'Estúdio', shortLabel: 'Estúdio', icon: NavStudio },
+  { id: 'extras', label: 'Extras & prêmios', shortLabel: 'Extras', icon: NavExtras },
+  { id: 'library', label: 'Biblioteca', shortLabel: 'Acervo', icon: NavLibrary },
+  { id: 'settings', label: 'Ajustes', shortLabel: 'Ajustes', icon: NavSettings },
 ] as const;
 
 // Telas pesadas carregam sob demanda: abertura mais rápida e menos trabalho no celular.
 const Studio = lazy(() => import('./components/Studio').then(m => ({ default: m.Studio })));
 const Spotlight = lazy(() => import('./components/Spotlight').then(m => ({ default: m.Spotlight })));
 const CatalogPanel = lazy(() => import('./components/CatalogPanel').then(m => ({ default: m.CatalogPanel })));
+const Extras = lazy(() => import('./components/Extras').then(m => ({ default: m.Extras })));
+const Welcome = lazy(() => import('./components/Welcome').then(m => ({ default: m.Welcome })));
 const DeviceSync = lazy(() => import('./components/DeviceSync').then(m => ({ default: m.DeviceSync })));
 const Loading = () => <div className="spotlight-loading" role="status"><MusicLoader size="md" /><span>Carregando…</span></div>;
 
@@ -141,7 +151,12 @@ function App() {
 
   const [year, setYear] = useState('all');
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [spotlightOpen,setSpotlightOpen]=useState(false);
+  const [spotlightTab,setSpotlightTab]=useState<SpotlightTab|null>(null);
+  // Primeira visita neste aparelho ou link de convite: mini-tutorial para usar o próprio Last.fm.
+  const [showWelcome,setShowWelcome]=useState(()=>{try{return !localStorage.getItem('lastchart-studio:settings:v1')||new URLSearchParams(location.search).has('convite');}catch{return false;}});
+  const [syncAfterSwitch,setSyncAfterSwitch]=useState(false);
+  const spotlightOpen=spotlightTab!==null;
+  const setSpotlightOpen=(open:boolean)=>setSpotlightTab(open?'chart':null);
   const [studioPeriod, setStudioPeriod] = useState<PeriodResult | null>(null);
   const [weekId, setWeekId] = useState('');
   const [top, setTop] = useState(100);
@@ -246,6 +261,9 @@ function App() {
   }, []);
 
   useEffect(() => { setStudioPeriod(null); }, [kind, sourceFilter, settings.user, settings.startDate, settings.timezone, cached]);
+  useEffect(() => { if (new URLSearchParams(location.search).has('convite')) history.replaceState(null, '', location.pathname); }, []);
+  // Depois de trocar de perfil pelo tutorial, começa o download do histórico desse perfil.
+  useEffect(() => { if (!syncAfterSwitch) return; const t = setTimeout(() => { setSyncAfterSwitch(false); void data.sync('all'); }, 500); return () => clearTimeout(t); }, [settings.user, syncAfterSwitch]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = dark ? 'dark' : 'light';
@@ -359,6 +377,7 @@ function App() {
       await audio.play();
       setPlayer({
         item: media.artworkUrl && !item.image ? { ...item, image: media.artworkUrl } : item,
+        trackName: media.trackName,
         loading: false,
         previewUrl: media.previewUrl,
         externalUrl: media.trackViewUrl,
@@ -369,6 +388,7 @@ function App() {
     } catch {
       setPlayer({
         item,
+        trackName: media.trackName,
         loading: false,
         previewUrl: media.previewUrl,
         externalUrl: media.trackViewUrl,
@@ -396,6 +416,20 @@ function App() {
     setPlayer(null);
   };
 
+  // Leva até um recurso dentro da página (ex.: painel do Acervo), esperando o carregamento sob demanda.
+  const focusSection = (selector: string) => {
+    let tries = 0;
+    const seek = () => { const el = document.querySelector(selector); if (el) { el.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'start' }); (el as HTMLElement).classList.add('is-spotlit'); setTimeout(() => (el as HTMLElement).classList.remove('is-spotlit'), 1600); } else if (tries++ < 40) setTimeout(seek, 100); };
+    setTimeout(seek, 350);
+  };
+  const openExtra = (target: ExtrasTarget | { page: 'charts' }) => {
+    if ('tab' in target) { setSpotlightTab(target.tab); return; }
+    if ('action' in target && target.action === 'welcome') { setShowWelcome(true); return; }
+    if ('action' in target && target.action === 'invite') { void shareInvite(data.setNotice, data.setError); return; }
+    if ('action' in target) { if (known) void saveWeeklyCard(); else { navigate('charts'); data.setNotice('Escolha uma semana sincronizada em Charts para gerar o card.'); } return; }
+    navigate(target.page);
+    if ('focus' in target && target.focus) focusSection(target.focus);
+  };
   const navigate = (next: Page) => {
     const apply = () => {
       setPage(next);
@@ -492,7 +526,7 @@ function App() {
       <aside className="sidebar">
         <button type="button" className="brand" onClick={() => navigate('overview')} aria-label="LastChart início">
           <span className="brand-mark">
-            <AudioLines />
+            <img src="/favicon.svg" alt="" width="38" height="38" />
           </span>
           <span>
             lastchart
@@ -510,12 +544,11 @@ function App() {
               onClick={() => navigate(id)}
               aria-current={page === id ? 'page' : undefined}
             >
-              <Icon size={19} />
+              <Icon size={20} active={page === id} />
               <span>{label}</span>
               {id === 'studio' && <span className="tiny-badge">60FPS</span>}
             </button>
           ))}
-          <button type="button" className={`nav-link ${spotlightOpen?'active':''}`} aria-haspopup="dialog" aria-expanded={spotlightOpen} onClick={()=>setSpotlightOpen(true)}><GramophoneIcon size={19}/><span>Charts & prêmios</span></button>
         </nav>
 
         <div className="sidebar-bottom">
@@ -556,7 +589,7 @@ function App() {
 
           <button type="button" className="mobile-brand" onClick={() => navigate('overview')}>
             <span className="brand-mark small">
-              <AudioLines size={18} />
+              <img src="/favicon.svg" alt="" width="32" height="32" />
             </span>
             <span>lastchart</span>
           </button>
@@ -576,6 +609,7 @@ function App() {
             >
               <Disc3 size={18} />
             </button>
+            <button type="button" className={`icon-button settings-shortcut ${page === 'settings' ? 'active' : ''}`} aria-label="Abrir Ajustes" aria-current={page === 'settings' ? 'page' : undefined} onClick={() => navigate('settings')}><NavSettings size={18} active={page === 'settings'} /></button>
             <button
               type="button"
               className="profile-button"
@@ -593,7 +627,7 @@ function App() {
 
         <main id="main">
           {page==='overview'&&!installed&&<section className="install-banner" aria-label="Instalar LastChart no celular"><Smartphone size={24}/><div><strong>Seu LastChart na tela inicial</strong><small>Instale pelo navegador e abra como aplicativo.</small></div><button type="button" className="button primary" onClick={()=>void install()} disabled={installing}>{installing?<MusicLoader size="sm" tone="ink"/>:<Download size={16}/>}<span>{installing?'Abrindo instalação…':'Instalar no celular'}</span></button></section>}
-              {(page==='overview'||page==='charts')&&<section className="spotlight-entry"><div className="spotlight-entry-icon"><GramophoneIcon size={34}/></div><div><span className="eyebrow">SPOTLIGHT</span><h2>Seu gosto merece o palco.</h2><p>Crie sua edição de charts, revele os vencedores e revisite sua história.</p></div><button type="button" className="button" onClick={()=>setSpotlightOpen(true)}><Sparkles size={16}/><span>Charts & premiações</span></button></section>}
+              {page==='overview'&&<section className="spotlight-entry"><div className="spotlight-entry-icon"><GramophoneIcon size={34}/></div><div><span className="eyebrow">SPOTLIGHT</span><h2>Seu gosto merece o palco.</h2><p>Premiação Grammy pessoal com júri ou voto, seu perfil musical e signo, comparação e recordes. Tudo em Extras.</p></div><button type="button" className="button" onClick={()=>navigate('extras')}><Sparkles size={16}/><span>Abrir Extras & prêmios</span></button></section>}
           {!online && (
             <div className="alert">
               <WifiOff size={18} />
@@ -647,6 +681,8 @@ function App() {
                       ? 'MOTOR GRÁFICO 60 FPS · LINHAS & BARRAS'
                       : page === 'charts'
                         ? 'PADRÃO ZEROCHARTS · SEXTA A QUINTA'
+                        : page === 'extras'
+                          ? 'PREMIAÇÕES, PERFIL MUSICAL & RECURSOS'
                         : page === 'library'
                           ? 'CATÁLOGO & CERTIFICAÇÕES PESSOAIS'
                           : 'CONTROLE TOTAL & PRIVACIDADE LOCAL'}
@@ -659,6 +695,8 @@ function App() {
                     ? 'Dê movimento à sua história.'
                     : page === 'charts'
                       ? 'Rankings semanais auditáveis.'
+                      : page === 'extras'
+                        ? 'Extras para celebrar sua música.'
                       : page === 'library'
                         ? 'Seu acervo e certificações.'
                         : 'Calibre seu estúdio.'}
@@ -670,12 +708,14 @@ function App() {
                     ? 'Curvas Bézier estilo Billboard ou Corrida de Barras estilo YouTube, com exportação nativa em vídeo.'
                     : page === 'charts'
                       ? 'Explore picos, variações, estreias, reentradas e gere cards prontos para compartilhar.'
+                      : page === 'extras'
+                        ? 'Premiação com as categorias do Grammy, júri automático, seu perfil e signo musical, comparação, recordes e atalhos. Cada cartão explica o que é e como usar.'
                       : page === 'library'
                         ? 'Ouça prévias de 30s, filtre favoritos e acompanhe discos de Ouro, Platina e Diamante.'
                         : 'Configure início de contagem, plataformas (Last.fm, Spotify, YouTube Music), aliases e backups.'}
               </p>
             </div>
-            {page !== 'settings' && (
+            {page !== 'settings' && page !== 'extras' && (
               <div className="hero-cta-group">
                 <button
                   type="button"
@@ -709,7 +749,7 @@ function App() {
             )}
           </section>
 
-          {page === 'settings' ? (
+          {page === 'extras' ? <Suspense fallback={<Loading />}><Extras onOpen={openExtra} /></Suspense> : page === 'settings' ? (
             <SettingsPage
               settings={settings}
               profile={profile}
@@ -733,6 +773,7 @@ function App() {
               years={years}
               onInstall={install}
               charts={charts}
+              onWelcome={() => setShowWelcome(true)}
             />
           ) : (
             <>
@@ -972,7 +1013,7 @@ function App() {
                           )}
                         </div>
                         <div className="spotlight-btns">
-                          {leader && (
+                          {leader && !previewKnownMissing(leader) && (
                             <button
                               type="button"
                               className="round-action"
@@ -1191,6 +1232,7 @@ function App() {
                     <RecordsBoard records={records} onDetail={setDetail} />
                   ) : (
                     <>
+                      {known && (() => { const heads = weekHeadlines(selected, filtered[selectedIndex - 1]); return heads.length ? <div className="press-strip" aria-label="Manchetes da semana"><span className="eyebrow">MANCHETES DA SEMANA · Imprensa LastChart (ficção com seus dados reais)</span><div>{heads.map(h => <article key={h.id} className={`tone-${h.tone}`}><strong>{h.title}</strong><small>{h.dek}</small></article>)}</div></div> : null; })()}
                       <div className="table-toolbar">
                         <div className="search-field">
                           <Search size={17} />
@@ -1354,7 +1396,7 @@ function App() {
                               <Cover item={item} />
                             </button>
                             {cert.tier !== 'none' && <span className={`cert-pill ${cert.tier}`}>{cert.label}</span>}
-                            <button
+                            {!previewKnownMissing(item) && <button
                               type="button"
                               className="cover-play-btn"
                               aria-label={`Ouvir prévia de ${item.name}`}
@@ -1367,7 +1409,7 @@ function App() {
                               ) : (
                                 <Play size={15} fill="currentColor" />
                               )}
-                            </button>
+                            </button>}
                           </div>
                           <button type="button" className="item-title" onClick={() => setDetail(item)}>
                             {item.name}
@@ -1434,7 +1476,7 @@ function App() {
       <MiniPlayer state={player} onToggle={togglePreview} onClose={closePreview} />
 
       <nav className="mobile-nav" aria-label="Navegação móvel">
-        {nav.map(({ id, shortLabel, icon: Icon }) => (
+        {nav.filter(n => n.id !== 'settings').map(({ id, shortLabel, icon: Icon }) => (
           <button
             type="button"
             key={id}
@@ -1442,7 +1484,7 @@ function App() {
             onClick={() => navigate(id)}
             aria-current={page === id ? 'page' : undefined}
           >
-            <Icon size={20} />
+            <Icon size={22} active={page === id} />
             <span>{shortLabel}</span>
           </button>
         ))}
@@ -1463,6 +1505,7 @@ function App() {
           }}
           favorite={favorites.includes(detail.id)}
           onFavorite={() => favorite(detail.id)}
+          profileKey={settings.user}
         />
       )}
 
@@ -1484,10 +1527,12 @@ function App() {
 
       {historyOpen && <HistoryExplorer weeks={weeks} charts={charts} initialYear={year} selectedId={selected?.id} startDate={settings.startDate} computing={computing} progress={progress} error={error} onCancel={data.cancel} onSync={scope => void data.sync(scope)} onClose={() => setHistoryOpen(false)} onCalendar={() => {setHistoryOpen(false);navigate('settings');}} initialMode={page==='studio'?'period':'archive'} onChoose={week => {setYear(String(week.year));setWeekId(week.id);setHistoryOpen(false);navigate('charts');}} settings={settings} cached={cached} kind={kind} source={sourceFilter} onAnimate={result => {setStudioPeriod(result);setStudioSeed(undefined);setHistoryOpen(false);if(page!=='studio')navigate('studio');}} />}
 
-      {spotlightOpen&&<Suspense fallback={null}><Spotlight charts={charts} library={library} cached={cached} settings={settings} source={sourceFilter} reduced={reduced} owner={profile?.realname||(profile?.name&&profile.name!=='Iknowjauregui'?profile.name:'David')} namespace={settings.user} initialYear={year} dark={dark} kind={kind} timezone={settings.timezone} onClose={()=>setSpotlightOpen(false)} onDownload={value=>{setSpotlightOpen(false);void data.sync(value==='all'?'all':Number(value));}} onStudio={(ids,title,series,items,count)=>{
+      {spotlightOpen&&<Suspense fallback={null}><Spotlight charts={charts} library={library} cached={cached} settings={settings} source={sourceFilter} reduced={reduced} owner={profile?.realname||(profile?.name&&profile.name!=='Iknowjauregui'?profile.name:'David')} namespace={settings.user} initialYear={year} dark={dark} kind={kind} timezone={settings.timezone} initialTab={spotlightTab??'chart'} onClose={()=>setSpotlightOpen(false)} onDownload={value=>{setSpotlightOpen(false);void data.sync(value==='all'?'all':Number(value));}} onStudio={(ids,title,series,items,count)=>{
         try{const saved=JSON.parse(localStorage.getItem('lastchart-studio:studio')??'{}');localStorage.setItem('lastchart-studio:studio',JSON.stringify({...studioDefaults,...saved,chartName:title,top:count,barCount:Math.min(count,30),mode:count>30?'lines':saved.mode??'lines'}));}catch{/* optional preference */}
         setStudioPeriod({charts:series,library:items,unit:'week'});setStudioSeed(ids);setSpotlightOpen(false);navigate('studio');
       }}/></Suspense>}
+
+      {showWelcome && <Suspense fallback={null}><Welcome settings={settings} onClose={() => setShowWelcome(false)} onNotice={data.setNotice} onError={data.setError} onUse={found => { setShowWelcome(false); setYear('all'); setWeekId(''); setSettings({ ...settings, user: found.name, avatar: 'lastfm' }); setSyncAfterSwitch(true); data.setNotice(`Bem-vindo, ${found.realname || found.name}! Baixando o seu histórico…`); navigate('overview'); }} /></Suspense>}
 
       {avatarModal && (
         <AvatarPickerModal
@@ -1643,7 +1688,7 @@ function Ranking({
                 </td>
                 <td className="actions-cell">
                   <div className="row-actions">
-                    <button
+                    {!previewKnownMissing(e) && <button
                       type="button"
                       className={`icon-button mini-action ${isPlaying ? 'playing' : ''}`}
                       aria-label={`Ouvir prévia de ${e.name}`}
@@ -1656,7 +1701,7 @@ function Ranking({
                       ) : (
                         <Volume2 size={15} />
                       )}
-                    </button>
+                    </button>}
                     {onAnimate && !compact && (
                       <button
                         type="button"
@@ -1800,7 +1845,9 @@ function Detail({
   onAnimate,
   favorite,
   onFavorite,
+  profileKey,
 }: {
+  profileKey: string;
   item: Item;
   charts: ChartWeek[];
   playing: boolean;
@@ -1813,6 +1860,16 @@ function Detail({
 }) {
   const audit = getItemAuditHistory(charts, item.id, item.plays);
   const cert = getCertification(audit.totalPlays);
+  const awards = useMemo(() => personalAwards(item, profileKey), [item.id, profileKey]);
+  const wins = awards.filter(a => a.result === 'win');
+  const top10 = audit.run.filter(r => typeof r.rank === 'number' && r.rank <= 10).length;
+  const firstOne = audit.run.find(r => r.rank === 1);
+  const press = [
+    audit.weeksAtOne > 0 && { t: `${item.name} soma ${audit.weeksAtOne} ${audit.weeksAtOne === 1 ? 'semana' : 'semanas'} em #1`, d: firstOne ? `Chegou ao topo pela primeira vez na semana ${firstOne.number} (${firstOne.label}).` : '' },
+    top10 >= 4 && { t: `Presença de elite: ${top10} semanas no Top 10`, d: `Pico #${audit.peak} e ${audit.weeks} semanas no chart.` },
+    wins.length > 0 && { t: `${wins.length} ${wins.length === 1 ? 'gramofone' : 'gramofones'} na estante`, d: wins.slice(0, 2).map(w => `${w.category} (${w.period})`).join(' · ') },
+    cert.tier !== 'none' && { t: `Certificado ${cert.label} no seu histórico`, d: `${number(audit.totalPlays)} reproduções acumuladas.` },
+  ].filter(Boolean) as Array<{ t: string; d: string }>;
   const artworkUrl = useArtworkUrl(item);
   const q = encodeURIComponent(`${item.artist} ${item.name}`);
 
@@ -1830,7 +1887,7 @@ function Detail({
           </div>
           <h3>{item.album || item.artist}</h3>
           <div className="detail-quick-actions">
-            <button type="button" className="button apple-play-btn small" onClick={onPreview}>
+            {!previewKnownMissing(item) && <button type="button" className="button apple-play-btn small" onClick={onPreview}>
               {loadingAudio ? (
                 <MusicLoader size="sm" tone="ink" />
               ) : playing ? (
@@ -1839,7 +1896,7 @@ function Detail({
                 <Play size={15} fill="currentColor" />
               )}
               <span>{loadingAudio ? 'Carregando…' : playing ? 'Pausar prévia' : 'Prévia 30s'}</span>
-            </button>
+            </button>}
             <button type="button" className="button apple-glass-pill small" onClick={onAnimate}>
               <Film size={14} />
               <span>Animar trajetória</span>
@@ -1870,6 +1927,21 @@ function Detail({
           <span>Plays acumulados</span>
         </div>
       </div>
+
+      <section className="detail-achievements" aria-label="Conquistas e prêmios">
+        <h4><Trophy size={16} /> Conquistas e prêmios</h4>
+        <div className="achievement-chips">
+          <span className={audit.weeksAtOne ? 'gold' : ''}><Crown size={14} /> {audit.weeksAtOne} sem. em #1</span>
+          <span><Sparkles size={14} /> {top10} sem. no Top 10</span>
+          <span><TrendingUp size={14} /> Pico {audit.peak ? `#${audit.peak}` : '—'}</span>
+          {cert.tier !== 'none' && <span className="gold"><Award size={14} /> {cert.label}</span>}
+          {!!wins.length && <span className="gold"><GramophoneIcon size={16} /> {wins.length} {wins.length === 1 ? 'prêmio' : 'prêmios'}</span>}
+        </div>
+        {awards.length ? <ul className="award-mentions">{awards.slice(0, 8).map(a => <li key={a.key} className={a.result}><GramophoneIcon size={18} /><span><strong>{a.result === 'win' ? 'Venceu' : 'Indicado'} · {a.category}</strong><small>{a.period} · {a.method}{a.work ? ` · com “${a.work}”` : ''}</small></span></li>)}</ul>
+          : <p className="note">Ainda sem prêmios pessoais. Monte sua premiação em Extras para ver vitórias e indicações aqui.</p>}
+        {!!press.length && <div className="press-list"><span className="eyebrow">NA IMPRENSA LASTCHART · ficção com dados reais</span>{press.map(p => <article key={p.t}><strong>{p.t}</strong>{p.d && <small>{p.d}</small>}</article>)}</div>}
+        <small className="note">Prêmios oficiais do Grammy não são exibidos: o app não tem uma fonte verificada integrada para isso.</small>
+      </section>
 
       {audit.charted && (audit.totalWeeksOut > 0 || audit.missingWeeksSinceDebut > 0) && (
         <div className="hiatus-banner" role="status">
@@ -1981,7 +2053,9 @@ function SettingsPage({
   years,
   onInstall,
   charts,
+  onWelcome,
 }: {
+  onWelcome: () => void;
   settings: Settings;
   profile: Profile | null;
   setSettings: (s: Settings) => void;
@@ -2127,6 +2201,7 @@ function SettingsPage({
               />
               <small>Apenas o nome de usuário público. Nenhuma senha ou login OAuth é solicitado.</small>
             </label>
+            <div className="welcome-cta"><span>Outra pessoa vai usar? Abra o passo a passo ou envie o convite.</span><button type="button" className="button small" onClick={onWelcome}>Passo a passo</button><button type="button" className="button small" onClick={() => void shareInvite(onNotice, onError)}>Convidar</button></div>
 
             <div className="form-two">
               <label>

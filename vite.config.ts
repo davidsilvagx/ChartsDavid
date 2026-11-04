@@ -38,7 +38,7 @@ export default defineConfig(({ mode }) => {
       name: 'lastchart-offline', apply: 'build',
       closeBundle() {
         const assets = readdirSync('dist/assets').map(name => `/assets/${name}`);
-        const files = ['/index.html', '/favicon.svg', '/manifest.webmanifest', '/icons/icon-192.png', '/icons/icon-512.png', '/icons/maskable-512.png', ...assets];
+        const files = ['/index.html', '/favicon.svg', '/manifest.webmanifest', '/icons/icon-192.png', '/icons/icon-512.png', '/icons/maskable-512.png', '/icons/apple-touch-icon.png', ...assets];
         const version = `lastchart-${Date.now()}`;
         writeFileSync('dist/sw.js', `const CACHE=${JSON.stringify(version)};const FILES=${JSON.stringify(files)};
 self.addEventListener('install',event=>event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(FILES)).then(()=>self.skipWaiting())));

@@ -20,6 +20,10 @@ Aplicativo web e PWA independente integrado à API oficial do **Last.fm** e enri
 - **Trilha do #1**: modos manual, automático (associa arquivos da sua biblioteca local por etiquetas ID3/MP4/Vorbis) e automático com prioridade manual. As prévias do iTunes não são sincronizadas com animação/vídeo (regra da Apple).
 - **Projetos entre aparelhos**: chave de sincronização própria e cifragem AES-GCM no aparelho; servidor guarda só bytes cifrados (Upstash Redis via Vercel). Alternativa sem servidor: Exportar/Importar projeto.
 - **Notificações de marcos (opt-in)**: novo #1, certificações, aniversários de #1 e recordes, com resumo diário e horário silencioso em 24 h, enquanto o app está aberto.
+- **Extras & prêmios**: aba própria com instruções de uso de cada recurso. Premiação com **júri automático** (6 jurados com critérios públicos, resultado lacrado) ou modo híbrido (você escolhe os indicados, o júri decide), elegibilidade por lançamento e Artista Revelação pela carreira no catálogo, comentários dos jurados e manchetes fictícias com dados reais.
+- **Seu perfil musical**: 16 perfis em 4 eixos, selos, relógio de audição e **signo musical** com árvore de habilidades, por semana, mês, ano ou todo o histórico.
+- **Comparação de até 5 perfis**: duelo, matriz de afinidade, parada do grupo, o que todos ouvem e quem ouviu primeiro.
+- **Para qualquer pessoa**: tutorial de boas-vindas para conectar o próprio Last.fm e link de convite (`/?convite=1`).
 - **Design Adaptado para Smartphones (Samsung Galaxy S Ultra / One UI & iOS)**: modos Escuro, Claro e Sistema, PWA instalável com cache offline do histórico sincronizado, zero truncamento de ícones/botões entre `320px` e `430px` CSS (`DPR 3.75`) e transições nativas (`View Transitions API` + `<dialog>` top-layer).
 
 ## Desenvolvimento Local

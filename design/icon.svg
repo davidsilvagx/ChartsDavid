@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- LastChart: vinil + selo em gradiente + linha de chart rumo ao #1. Arte original. -->
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="22%" r="85%"><stop offset="0" stop-color="#15402f"/><stop offset=".55" stop-color="#0a1c16"/><stop offset="1" stop-color="#050b09"/></radialGradient>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#22dc6e" stop-opacity=".34"/><stop offset="1" stop-color="#22dc6e" stop-opacity="0"/></radialGradient>
+    <radialGradient id="vinyl" cx="42%" cy="38%" r="70%"><stop offset="0" stop-color="#232a31"/><stop offset=".6" stop-color="#0d1115"/><stop offset="1" stop-color="#030405"/></radialGradient>
+    <linearGradient id="label" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3cf08a"/><stop offset=".55" stop-color="#22dc6e"/><stop offset="1" stop-color="#38bdf8"/></linearGradient>
+    <linearGradient id="shine" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".22"/><stop offset=".45" stop-color="#fff" stop-opacity="0"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>
+    <linearGradient id="line" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#22dc6e" stop-opacity=".0"/><stop offset=".25" stop-color="#22dc6e"/><stop offset=".75" stop-color="#7cf5b0"/><stop offset="1" stop-color="#f5c451"/></linearGradient>
+    <radialGradient id="gold" cx="38%" cy="35%" r="70%"><stop offset="0" stop-color="#fff3c4"/><stop offset=".45" stop-color="#f5c451"/><stop offset="1" stop-color="#c98a12"/></radialGradient>
+    <filter id="soft" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="10"/></filter>
+  </defs>
+  <rect id="plate" width="512" height="512" rx="114" fill="url(#bg)"/>
+  <circle cx="256" cy="270" r="200" fill="url(#glow)"/>
+  <g>
+    <circle cx="256" cy="272" r="166" fill="url(#vinyl)"/>
+    <g fill="none" stroke="#fff" stroke-opacity=".07" stroke-width="3">
+      <circle cx="256" cy="272" r="150"/><circle cx="256" cy="272" r="134"/><circle cx="256" cy="272" r="118"/><circle cx="256" cy="272" r="102"/><circle cx="256" cy="272" r="88"/>
+    </g>
+    <path d="M139 155a166 166 0 0 1 150-48 150 150 0 0 0-128 70z" fill="url(#shine)"/>
+    <circle cx="256" cy="272" r="166" fill="none" stroke="#fff" stroke-opacity=".08" stroke-width="2"/>
+    <circle cx="256" cy="272" r="74" fill="url(#label)"/>
+    <circle cx="256" cy="272" r="74" fill="none" stroke="#04130a" stroke-opacity=".25" stroke-width="3"/>
+    <g fill="#04130a">
+      <rect x="215" y="270" width="15" height="34" rx="7.5"/>
+      <rect x="238" y="252" width="15" height="52" rx="7.5"/>
+      <rect x="261" y="262" width="15" height="42" rx="7.5"/>
+      <rect x="284" y="238" width="15" height="66" rx="7.5"/>
+    </g>
+  </g>
+  <path d="M82 382 C 168 360, 196 300, 262 214 S 350 118, 404 118" fill="none" stroke="#22dc6e" stroke-opacity=".5" stroke-width="30" stroke-linecap="round" filter="url(#soft)"/>
+  <path d="M82 382 C 168 360, 196 300, 262 214 S 350 118, 404 118" fill="none" stroke="url(#line)" stroke-width="20" stroke-linecap="round"/>
+  <circle cx="404" cy="118" r="40" fill="#f5c451" fill-opacity=".28" filter="url(#soft)"/>
+  <circle cx="404" cy="118" r="27" fill="url(#gold)"/>
+  <circle cx="395" cy="109" r="7" fill="#fff" fill-opacity=".75"/>
+</svg>

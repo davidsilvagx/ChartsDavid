@@ -1,5 +1,18 @@
 export async function itunesProxy(search) {
   const incoming = new URLSearchParams(search);
+  // Discografia de um artista (para estimar estreia e número de álbuns): lookup por ID numérico.
+  const artistId = incoming.get('artistId') ?? '';
+  if (/^\d{1,12}$/.test(artistId)) {
+    try {
+      const response = await fetch(`https://itunes.apple.com/lookup?${new URLSearchParams({ id: artistId, entity: 'album', limit: '200', country: 'BR' })}`, { signal: AbortSignal.timeout(12000), headers: { 'User-Agent': 'LastChartStudioPro/1.0 (github.com/davidsilvagx/ChartsDavid)' } });
+      if (!response.ok) return Response.json({ results: [] }, { status: 502 });
+      const data = await response.json();
+      const results = (Array.isArray(data?.results) ? data.results : []).filter(r => r.wrapperType === 'collection').map(r => ({
+        collectionName: String(r.collectionName ?? ''), releaseDate: typeof r.releaseDate === 'string' ? r.releaseDate.slice(0, 10) : '', trackCount: Number.isSafeInteger(r.trackCount) ? r.trackCount : 0, artistName: String(r.artistName ?? ''),
+      }));
+      return Response.json({ results }, { headers: { 'Cache-Control': 'public, max-age=86400' } });
+    } catch { return Response.json({ results: [] }, { status: 502 }); }
+  }
   const term = (incoming.get('term') ?? '').trim().slice(0, 200);
   const requested = incoming.get('entity');
   const entity = requested === 'album' || requested === 'musicArtist' ? requested : 'song';

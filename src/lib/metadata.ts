@@ -42,6 +42,8 @@ export interface MetaRecord {
   genre?: string; releaseDate?: string; catalogTitle?: string; catalogAlbum?: string; url?: string;
   durationMs?: number; durationSource?: 'itunes' | 'lastfm'; lastfmDurationMs?: number; durationConflict?: boolean;
   candidates?: number; versions: VersionTag[]; explicit?: boolean; note?: string;
+  /** Artistas: primeiro lançamento e álbuns completos no catálogo (estimativa para Artista Revelação). */
+  firstRelease?: string; albumCount?: number;
 }
 export interface MetaReview { genre?: string; releaseDate?: string; durationMs?: number | null; versions?: VersionTag[]; reviewedAt: number; note?: string }
 export interface EffectiveMeta extends MetaRecord { review?: MetaReview; reviewed: boolean }
@@ -100,6 +102,15 @@ export function pickCatalogMatch(kind: Kind, item: Pick<Item, 'artist' | 'name' 
   if (ambiguous) record.note = `${pool.length} gravações homônimas com durações diferentes; escolha manual necessária.`;
   else if (genres.size > 1 && !albumMatch.length) record.note = 'Gêneros diferentes entre versões; gênero deixado como desconhecido.';
   return record;
+}
+
+/** Carreira no catálogo: lançamento mais antigo e álbuns completos (sem singles/EPs, 7+ faixas). */
+export function careerFrom(collections: Array<{ collectionName: string; releaseDate: string; trackCount: number }>) {
+  const dated = collections.filter(c => /^\d{4}-\d{2}-\d{2}/.test(c.releaseDate));
+  if (!dated.length) return null;
+  const firstRelease = dated.map(c => c.releaseDate.slice(0, 10)).sort()[0];
+  const albums = new Set(dated.filter(c => !/\s-\s(single|ep)$/i.test(c.collectionName) && c.trackCount >= 7).map(c => normalize(c.collectionName).replace(/\s*[([].*?[)\]]\s*/g, ' ').trim()));
+  return { firstRelease, albumCount: albums.size };
 }
 
 /** Cruza a duração do catálogo com o Last.fm. Diferença acima da tolerância vira conflito, fora da soma. */
@@ -177,6 +188,12 @@ export async function enrichItems(kind: Kind, items: Item[], options: { signal: 
     try {
       record = pickCatalogMatch(kind, item, await fetcher(kind, item, options.signal));
       if (kind === 'tracks' && options.useLastfm) record = applyLastfmDuration(record, await lastfmDuration(item, options.apiKey ?? '', options.signal));
+      if (kind === 'artists' && record.ids?.artistId) {
+        await delay(pacing, options.signal); last = Date.now();
+        const response = await fetch(`/api/itunes?artistId=${record.ids.artistId}`, { signal: AbortSignal.any([options.signal, AbortSignal.timeout(12000)]) }).catch(() => null);
+        const career = response?.ok ? careerFrom(((await response.json()) as { results?: Array<{ collectionName: string; releaseDate: string; trackCount: number }> }).results ?? []) : null;
+        if (career) record = { ...record, ...career };
+      }
     } catch (error) {
       if (options.signal.aborted) throw error;
       record = { key: metaKey(kind, item), kind, artist: item.artist, name: item.name, album: item.album, status: 'error', source: 'itunes', fetchedAt: Date.now(), versions: versionTags(item.name), note: error instanceof Error ? error.message : 'Falha na consulta.' };
