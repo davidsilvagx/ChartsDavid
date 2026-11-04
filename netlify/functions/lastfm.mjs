@@ -1,5 +1,5 @@
 const allowed = new Map(
-  ['user.getInfo', 'user.getRecentTracks', 'user.getWeeklyChartList', 'user.getTopTracks', 'user.getTopAlbums', 'artist.getTopTracks', 'artist.getTopAlbums', 'album.getInfo', 'track.getInfo'].map(
+  ['user.getInfo', 'user.getRecentTracks', 'user.getWeeklyChartList', 'user.getTopTracks', 'user.getTopAlbums', 'artist.getInfo', 'artist.getTopTracks', 'artist.getTopAlbums', 'album.getInfo', 'track.getInfo'].map(
     m => [m.toLowerCase(), m],
   ),
 );

@@ -62,3 +62,57 @@ export function compareProfiles(
 }
 
 export const sameProfile = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+
+export interface GroupMember { name: string; cached: CachedWeek[] }
+export interface GroupResult {
+  members: Array<{ name: string; plays: number; items: number; coverage: number; eclectic: number }>;
+  matrix: Array<Array<number | null>>;
+  chart: Array<{ id: string; name: string; artist: string; image: string; score: number; listeners: string[] }>;
+  sharedAll: Array<{ id: string; name: string; artist: string; image: string }>;
+  trendsetters: Array<{ name: string; firsts: number }>;
+  closest: { a: string; b: string; overlap: number } | null;
+}
+/**
+ * Comparação em grupo (até 5 perfis): afinidade par a par, parada do grupo (soma das fatias, para quem ouve
+ * muito não dominar), itens em comum a todos e “quem ouviu primeiro” entre os itens compartilhados.
+ */
+export function compareGroup(members: GroupMember[], options: { kind: Kind; start: number; end: number; source?: SourceFilter; deduplicate?: boolean }): GroupResult {
+  const list = members.slice(0, 5);
+  const source = options.source ?? 'all', dedupe = options.deduplicate ?? false;
+  const data = list.map(m => {
+    const agg = aggregate(m.cached, options.kind, options.start, options.end, source, dedupe);
+    const first = new Map<string, number>();
+    for (const week of m.cached) for (const s of selectScrobblesForFilter(week.scrobbles, dedupe, source, week.week.start, week.week.end)) {
+      const base = itemOf(s, options.kind); if (!base) continue;
+      const seen = first.get(base.id); if (seen === undefined || s.timestamp < seen) first.set(base.id, s.timestamp);
+    }
+    const artists = new Set(agg.ranked.map(i => i.artist.toLowerCase()));
+    return { m, agg, first, byId: new Map(agg.ranked.map(i => [i.id, i])), eclectic: agg.plays ? artists.size / agg.plays * 100 : 0 };
+  });
+  const overlap = (x: typeof data[number], y: typeof data[number]) => {
+    if (!x.agg.plays || !y.agg.plays) return null;
+    let sum = 0; for (const [id, item] of x.byId) { const o = y.byId.get(id); if (o) sum += Math.min(item.plays / x.agg.plays, o.plays / y.agg.plays); }
+    return sum * 100;
+  };
+  const matrix = data.map((x, i) => data.map((y, j) => i === j ? 100 : overlap(x, y)));
+  let closest: GroupResult['closest'] = null;
+  for (let i = 0; i < data.length; i++) for (let j = i + 1; j < data.length; j++) { const v = matrix[i][j]; if (v !== null && (!closest || v > closest.overlap)) closest = { a: list[i].name, b: list[j].name, overlap: v }; }
+  const scores = new Map<string, { item: Item; score: number; listeners: string[] }>();
+  for (const d of data) for (const item of d.agg.ranked) {
+    const share = d.agg.plays ? item.plays / d.agg.plays : 0, row = scores.get(item.id) ?? { item, score: 0, listeners: [] };
+    row.score += share; row.listeners.push(d.m.name); if (!row.item.image && item.image) row.item = { ...row.item, image: item.image }; scores.set(item.id, row);
+  }
+  const chart = [...scores.values()].sort((a, b) => b.listeners.length - a.listeners.length || b.score - a.score).filter(r => r.listeners.length >= Math.min(2, data.length)).slice(0, 10)
+    .map(r => ({ id: r.item.id, name: r.item.name, artist: r.item.artist, image: r.item.image, score: r.score / data.length * 100, listeners: r.listeners }));
+  const sharedAll = [...scores.values()].filter(r => r.listeners.length === data.length && data.length > 1).sort((a, b) => b.score - a.score).slice(0, 12).map(r => ({ id: r.item.id, name: r.item.name, artist: r.item.artist, image: r.item.image }));
+  const firsts = new Map(list.map(m => [m.name, 0]));
+  for (const r of scores.values()) {
+    if (r.listeners.length < 2) continue;
+    const order = data.filter(d => d.byId.has(r.item.id)).map(d => ({ name: d.m.name, t: d.first.get(r.item.id) ?? Infinity })).sort((a, b) => a.t - b.t);
+    if (order[0] && order[0].t < (order[1]?.t ?? Infinity)) firsts.set(order[0].name, (firsts.get(order[0].name) ?? 0) + 1);
+  }
+  return {
+    members: data.map(d => ({ name: d.m.name, plays: d.agg.plays, items: d.agg.ranked.length, coverage: coverage(d.m.cached, options.start, options.end).ratio, eclectic: d.eclectic })),
+    matrix, chart, sharedAll, trendsetters: [...firsts].map(([name, n]) => ({ name, firsts: n })).sort((a, b) => b.firsts - a.firsts), closest,
+  };
+}

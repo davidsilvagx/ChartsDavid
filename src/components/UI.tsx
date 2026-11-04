@@ -380,6 +380,7 @@ export function Sparkline({ values, color = 'var(--accent)' }: { values: Array<n
 
 export interface PreviewPlayerState {
   item: Item;
+  trackName?: string;
   loading: boolean;
   previewUrl: string;
   externalUrl: string;
@@ -416,10 +417,10 @@ export function MiniPlayer({
           ) : (
             <Volume2 size={12} />
           )}
-          <span>{state.loading ? 'Buscando prévia…' : state.unavailable ? 'Prévia indisponível no catálogo' : state.playing ? 'Tocando agora · 30s' : 'Prévia 30s · Catálogo'}</span>
+          <span>{state.loading ? 'Buscando prévia…' : state.unavailable ? 'Prévia indisponível no catálogo' : state.playing ? 'Tocando prévia · cortesia do iTunes' : 'Prévia 30 s · cortesia do iTunes'}</span>
         </div>
         <strong>{state.item.name}</strong>
-        <small>{state.item.artist}</small>
+        <small>{state.item.artist}{state.trackName && state.trackName !== state.item.name ? ` · faixa: ${state.trackName}` : ''}</small>
       </div>
       <div className="mini-player-actions">
         {state.loading ? (
@@ -437,6 +438,8 @@ export function MiniPlayer({
             <ExternalLink size={13} />
           </a>
         ) : (
+          <>
+          {state.externalUrl && <a className="icon-button" href={state.externalUrl} target="_blank" rel="noreferrer" aria-label="Abrir no Apple Music"><ExternalLink size={14} /></a>}
           <button
             type="button"
             className="play-pill"
@@ -445,6 +448,7 @@ export function MiniPlayer({
           >
             {state.playing ? <Pause size={16} fill="currentColor" /> : <Play size={16} fill="currentColor" />}
           </button>
+          </>
         )}
         <button type="button" className="icon-button" onClick={onClose} aria-label="Fechar reprodutor">
           <X size={16} />
@@ -455,3 +459,6 @@ export function MiniPlayer({
 }
 
 export const number = (n: number) => new Intl.NumberFormat('pt-BR').format(n);
+
+/** Esconde o botão de prévia quando o catálogo já respondeu que não há prévia para o item. */
+export const previewKnownMissing = (item: Pick<Item, 'id' | 'name' | 'artist' | 'album'>) => { const media = peekCatalogMedia(item); return media === null || media?.previewUrl === ''; };

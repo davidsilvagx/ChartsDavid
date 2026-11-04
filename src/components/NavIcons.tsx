@@ -1,0 +1,11 @@
+import type { ReactNode } from 'react';
+/** Ícones próprios da navegação: traço arredondado + preenchimento suave quando ativos. */
+type P = { size?: number; active?: boolean };
+const Svg = ({ size = 22, active, children }: P & { children: ReactNode }) => <svg className={`nav-ico ${active ? 'is-active' : ''}`} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{children}</svg>;
+
+export const NavHome = (p: P) => <Svg {...p}><path className="fill" d="M4 10.4 12 4l8 6.4V18.5A2.5 2.5 0 0 1 17.5 21h-11A2.5 2.5 0 0 1 4 18.5Z" /><path d="M4 10.4 12 4l8 6.4V18.5A2.5 2.5 0 0 1 17.5 21h-11A2.5 2.5 0 0 1 4 18.5Z" /><path d="M9.3 17.2v-2.4M12 17.2v-4.6M14.7 17.2v-3.3" /></Svg>;
+export const NavCharts = (p: P) => <Svg {...p}><rect className="fill" x="10" y="8.5" width="4" height="12" rx="1.6" /><rect x="3.5" y="12.5" width="4" height="8" rx="1.6" /><rect x="10" y="8.5" width="4" height="12" rx="1.6" /><rect x="16.5" y="10.5" width="4" height="10" rx="1.6" /><path d="m10.3 4.6 1.7-1.4 1.7 1.4" /></Svg>;
+export const NavStudio = (p: P) => <Svg {...p}><rect className="fill" x="3" y="5" width="18" height="14" rx="3.5" /><rect x="3" y="5" width="18" height="14" rx="3.5" /><path d="M10.2 9.4v5.2l4.4-2.6Z" fill="currentColor" stroke="none" /><path d="M3 9h2.5M3 15h2.5M18.5 9H21M18.5 15H21" /></Svg>;
+export const NavExtras = (p: P) => <Svg {...p}><path className="fill" d="M7.5 4h9v4.2a4.5 4.5 0 0 1-9 0Z" /><path d="M7.5 4h9v4.2a4.5 4.5 0 0 1-9 0Z" /><path d="M7.5 6H5.2a2.6 2.6 0 0 0 2.6 4M16.5 6h2.3a2.6 2.6 0 0 1-2.6 4M12 12.7v3.3M8.8 20h6.4M10 16h4l.6 4h-5.2Z" /><path d="M19.6 2.6v2.2M18.5 3.7h2.2" /></Svg>;
+export const NavLibrary = (p: P) => <Svg {...p}><rect x="3" y="5.5" width="11" height="14" rx="2.2" /><circle className="fill" cx="15.5" cy="12.5" r="6" /><circle cx="15.5" cy="12.5" r="6" /><circle cx="15.5" cy="12.5" r="1.6" /><path d="M6 9.5h3.5" /></Svg>;
+export const NavSettings = (p: P) => <Svg {...p}><path d="M4 7h9.5M18.5 7H20M4 17h2.5M11.5 17H20" /><circle className="fill" cx="16" cy="7" r="2.5" /><circle cx="16" cy="7" r="2.5" /><circle className="fill" cx="9" cy="17" r="2.5" /><circle cx="9" cy="17" r="2.5" /></Svg>;
