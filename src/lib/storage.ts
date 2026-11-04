@@ -24,3 +24,11 @@ export async function importWeeks(settings: Settings, weeks: CachedWeek[]) {
   for (const week of weeks) await tx.store.put({ ...week, key: weekKey(settings, week.week.id) });
   await tx.done;
 }
+/** Reads every meta value whose key starts with the prefix (keys are strings). */
+export async function readMetaRange<T>(prefix: string): Promise<Array<[string, T]>> {
+  const database = await db();
+  const range = IDBKeyRange.bound(prefix, `${prefix}￿`);
+  const [keys, values] = await Promise.all([database.getAllKeys('meta', range), database.getAll('meta', range)]);
+  return keys.map((key, i) => [String(key), values[i] as T]);
+}
+export async function deleteMeta(key: string) { return (await db()).delete('meta', key); }

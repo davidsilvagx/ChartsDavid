@@ -1,7 +1,8 @@
 export async function itunesProxy(search) {
   const incoming = new URLSearchParams(search);
   const term = (incoming.get('term') ?? '').trim().slice(0, 200);
-  const entity = incoming.get('entity') === 'album' ? 'album' : 'song';
+  const requested = incoming.get('entity');
+  const entity = requested === 'album' || requested === 'musicArtist' ? requested : 'song';
   if (!term) {
     return Response.json({ results: [] }, { status: 400 });
   }
@@ -32,7 +33,16 @@ export async function itunesProxy(search) {
           previewUrl: typeof r.previewUrl === 'string' && r.previewUrl.startsWith('https://')
             ? r.previewUrl
             : '',
-          trackViewUrl: typeof r.trackViewUrl === 'string' ? r.trackViewUrl : '',
+          trackViewUrl: typeof r.trackViewUrl === 'string' ? r.trackViewUrl : (typeof r.collectionViewUrl === 'string' ? r.collectionViewUrl : (typeof r.artistLinkUrl === 'string' ? r.artistLinkUrl : '')),
+          trackId: Number.isSafeInteger(r.trackId) ? r.trackId : undefined,
+          collectionId: Number.isSafeInteger(r.collectionId) ? r.collectionId : undefined,
+          artistId: Number.isSafeInteger(r.artistId) ? r.artistId : undefined,
+          trackTimeMillis: Number.isFinite(r.trackTimeMillis) && r.trackTimeMillis > 0 ? r.trackTimeMillis : undefined,
+          primaryGenreName: typeof r.primaryGenreName === 'string' ? r.primaryGenreName.slice(0, 80) : '',
+          releaseDate: typeof r.releaseDate === 'string' ? r.releaseDate.slice(0, 25) : '',
+          collectionType: typeof r.collectionType === 'string' ? r.collectionType.slice(0, 40) : '',
+          trackCount: Number.isSafeInteger(r.trackCount) ? r.trackCount : undefined,
+          explicit: r.trackExplicitness === 'explicit' || r.collectionExplicitness === 'explicit',
         }))
       : [];
     return Response.json(

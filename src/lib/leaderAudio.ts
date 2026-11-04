@@ -1,8 +1,16 @@
 import { getChartIndex } from './chartIndex';
 import type { ChartWeek, Item, StudioSettings } from './types';
 
-export interface AudioClip { file: File; name: string; duration: number }
+export interface AudioClip { file: File; name: string; duration: number; origin?: 'manual' | 'auto'; matchedBy?: string }
 export type ClipBank = Record<string, AudioClip>;
+export type LeaderAudioMode = 'manual' | 'auto' | 'auto-manual';
+export const audioModeLabels: Record<LeaderAudioMode, string> = { manual: 'Manual', auto: 'Automático', 'auto-manual': 'Automático + manual' };
+/** Une os bancos conforme o modo. Em “automático + manual”, o trecho escolhido à mão sempre vence. */
+export function resolveClipBank(mode: LeaderAudioMode, manual: ClipBank, auto: ClipBank): ClipBank {
+  if (mode === 'manual') return manual;
+  if (mode === 'auto') return auto;
+  return { ...auto, ...manual };
+}
 export type AudioStatus = { phase: 'idle'|'loading'|'playing'|'paused'|'missing'|'error'; id: string | null; message?: string };
 
 export function createLeaderResolver(charts: ChartWeek[], items: Item[], settings: Pick<StudioSettings,'mode'|'barMetric'>) {
@@ -28,8 +36,9 @@ export function createLeaderResolver(charts: ChartWeek[], items: Item[], setting
   };
 }
 
-export async function inspectAudioClip(file:File):Promise<AudioClip>{
-  if(!file.size||file.size>8*1024*1024)throw new Error('Escolha um trecho de até 8 MB.');
+export async function inspectAudioClip(file:File,options:{maxBytes?:number;maxSeconds?:number}={}):Promise<AudioClip>{
+  const maxBytes=options.maxBytes??8*1024*1024,maxSeconds=options.maxSeconds??60;
+  if(!file.size||file.size>maxBytes)throw new Error(`Escolha um arquivo de até ${Math.round(maxBytes/1048576)} MB.`);
   if(file.type&&!file.type.startsWith('audio/')&&!/\.(mp3|m4a|wav|ogg|aac|flac|webm)$/i.test(file.name))throw new Error('Escolha um arquivo de áudio.');
   const url=URL.createObjectURL(file),audio=new Audio();
   try{
@@ -39,7 +48,7 @@ export async function inspectAudioClip(file:File):Promise<AudioClip>{
       audio.onerror=()=>{clearTimeout(timer);reject(new Error('Este formato de áudio não é compatível com o navegador.'));};
       audio.preload='metadata';audio.src=url;
     });
-    if(!Number.isFinite(duration)||duration<=0||duration>60)throw new Error('Use um trecho de até 60 segundos. O app repete os primeiros 30 segundos enquanto o item lidera.');
+    if(!Number.isFinite(duration)||duration<=0||duration>maxSeconds)throw new Error(maxSeconds<=60?'Use um trecho de até 60 segundos. O app repete os primeiros 30 segundos enquanto o item lidera.':'Arquivo longo demais para este aparelho.');
     return {file,name:file.name,duration};
   }finally{audio.onloadedmetadata=null;audio.onerror=null;audio.removeAttribute('src');audio.load();URL.revokeObjectURL(url);}
 }
@@ -50,6 +59,7 @@ export class LeaderAudioSession {
   readonly destination:MediaStreamAudioDestinationNode|null;
   private master:GainNode;
   private current:{id:string;file:File}|null=null;
+  private durations=new WeakMap<File,number>();
   private voice:{source:AudioBufferSourceNode;gain:GainNode}|null=null;
   private buffers=new Map<File,AudioBuffer>();
   private pending=new Map<File,Promise<AudioBuffer>>();
@@ -81,7 +91,12 @@ export class LeaderAudioSession {
     const waiting=this.pending.get(file);if(waiting)return waiting;
     const task=this.queue.catch(()=>{}).then(async()=>{
       if(this.closed)throw new Error('Áudio encerrado.');
-      const decoded=await this.context.decodeAudioData(await file.arrayBuffer());
+      // Arquivos longos: MP3 tolera corte por bytes; decodificamos só ~35 s para poupar memória no celular.
+      const duration=this.durations.get(file)??0,isMp3=/mpeg|mp3/.test(file.type)||/\.mp3$/i.test(file.name);
+      const source=isMp3&&duration>45&&file.size>1_500_000?file.slice(0,Math.ceil(file.size/duration*35)):file;
+      let decoded:AudioBuffer;
+      try{decoded=await this.context.decodeAudioData(await source.arrayBuffer());}
+      catch(error){if(source===file)throw error;decoded=await this.context.decodeAudioData(await file.arrayBuffer());}
       if(this.closed)throw new Error('Áudio encerrado.');
       const seconds=Math.min(30,decoded.duration),rate=22050,length=Math.max(1,Math.floor(seconds*rate));
       const compact=this.context.createBuffer(1,length,rate),target=compact.getChannelData(0);
@@ -95,6 +110,7 @@ export class LeaderAudioSession {
   async setLeader(id:string|null){
     if(this.closed)return;
     const clip=id?this.clips()[id]:undefined;
+    if(clip)this.durations.set(clip.file,clip.duration);
     if(this.lastRequest?.id===id&&this.lastRequest?.file===clip?.file)return;
     this.lastRequest={id,file:clip?.file};
     const version=++this.generation;this.current=id&&clip?{id,file:clip.file}:null;this.stopVoice();

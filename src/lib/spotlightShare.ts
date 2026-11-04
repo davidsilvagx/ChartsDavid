@@ -2,7 +2,7 @@ import { cacheImageUrl } from './canvas';
 import { resolveCatalogMedia } from './catalog';
 import type { Item } from './types';
 
-export async function renderSpotlightCard({title,owner,period,items,award,dark,coverage}:{title:string;owner:string;period:string;items:Item[];award?:string;dark:boolean;coverage?:string}){
+export async function renderSpotlightCard({title,owner,period,items,award,dark,coverage,official,basis}:{title:string;owner:string;period:string;items:Array<Pick<Item,'id'|'name'|'artist'|'album'|'image'>&{plays?:number}>;award?:string;dark:boolean;coverage?:string;official?:string;basis?:string}){
   const canvas=document.createElement('canvas');canvas.width=1080;canvas.height=1350;
   const ctx=canvas.getContext('2d');if(!ctx)throw new Error('Não foi possível criar o card.');
   await Promise.race([document.fonts.ready,new Promise(resolve=>setTimeout(resolve,1200))]);
@@ -23,15 +23,17 @@ export async function renderSpotlightCard({title,owner,period,items,award,dark,c
     ctx.save();ctx.beginPath();ctx.roundRect(270,292,540,540,40);ctx.clip();ctx.fillStyle=dark?'#172334':'#e0e6ef';ctx.fillRect(270,292,540,540);if(covers[0])ctx.drawImage(covers[0],270,292,540,540);ctx.restore();
     ctx.fillStyle=fg;ctx.font=font(800,43);text(items[0]?.name??'Sem dados',64,910,952);
     ctx.fillStyle=muted;ctx.font=font(500,28);text(items[0]?.artist??'',64,960,952);
-    ctx.fillStyle=accent;ctx.font=font(700,28);ctx.fillText(`${(items[0]?.plays??0).toLocaleString('pt-BR')} reproduções no período`,64,1020);
-    ctx.fillStyle=muted;ctx.font=font(500,21);ctx.fillText('Premiação pessoal baseada no histórico sincronizado.',64,1120);
+    if((items[0]?.plays??0)>0){ctx.fillStyle=accent;ctx.font=font(700,28);ctx.fillText(`${items[0].plays!.toLocaleString('pt-BR')} reproduções no período`,64,1020);}
+    ctx.fillStyle=muted;ctx.font=font(500,21);
+    if(official){text(`Categoria: ${official} · ${basis??'voto pessoal'}`,64,1080,952);text('Simulação pessoal independente; não é resultado oficial da Recording Academy.',64,1120,952);}
+    else ctx.fillText('Premiação pessoal baseada no histórico sincronizado.',64,1120);
   }else{
     items.slice(0,5).forEach((item,i)=>{
       const y=270+i*174;
       ctx.fillStyle=dark?'rgba(255,255,255,.05)':'rgba(255,255,255,.72)';ctx.beginPath();ctx.roundRect(48,y-14,984,156,26);ctx.fill();
       ctx.fillStyle=accent;ctx.font=font(800,29);ctx.fillText(String(i+1).padStart(2,'0'),72,y+66);
       ctx.save();ctx.beginPath();ctx.roundRect(132,y+2,124,124,20);ctx.clip();ctx.fillStyle=dark?'#203047':'#dbe4ef';ctx.fillRect(132,y+2,124,124);if(covers[i])ctx.drawImage(covers[i]!,132,y+2,124,124);ctx.restore();
-      ctx.fillStyle=fg;ctx.font=font(750,29);text(item.name,282,y+36,708);ctx.fillStyle=muted;ctx.font=font(500,23);text(item.artist,282,y+74,708);ctx.fillStyle=accent;ctx.font=font(700,23);ctx.fillText(`${item.plays.toLocaleString('pt-BR')} plays`,282,y+112);
+      ctx.fillStyle=fg;ctx.font=font(750,29);text(item.name,282,y+36,708);ctx.fillStyle=muted;ctx.font=font(500,23);text(item.artist,282,y+74,708);ctx.fillStyle=accent;ctx.font=font(700,23);ctx.fillText(`${(item.plays??0).toLocaleString("pt-BR")} plays`,282,y+112);
     });
   }
   ctx.fillStyle=fg;ctx.font=font(700,24);text(owner,64,1226,952);

@@ -14,6 +14,12 @@ Aplicativo web e PWA independente integrado à API oficial do **Last.fm** e enri
   - **Card Semanal Top 10 (PNG 1080×1350)**: imagem pronta para compartilhamento em redes sociais.
   - **Hall de Recordes & Certificações**: maiores domínios em `#1`, longevidade no Top 100, maiores saltos, maiores estreias e certificações pessoais (Prata, Ouro, Platina, 2× Platina e Diamante).
   - **Mesclagem Auditável de Aliases/Edições**: unifique variações de faixas, álbuns ou artistas localmente com reversão instantânea, preservando os scrobbles originais intactos no `IndexedDB`.
+- **Charts & prêmios (Spotlight)**: edição pessoal com nome próprio, premiação com as **100 categorias da 69ª edição do Grammy (2027)** — nome oficial preservado e rótulo pt-BR —, cédula com voto pessoal e sugestões por critérios explícitos, revisão e **cerimônia** com suspense, cortinas, revelação e confetes (pular, rever, próxima, movimento reduzido). Simulação independente, sem vínculo com a Recording Academy.
+- **Comparação de perfis**: segundo perfil Last.fm (ou backup) em namespace próprio, mesmo intervalo civil/fuso, cobertura de cada lado, itens em comum/exclusivos e sobreposição de gosto explicada.
+- **Catálogo verificado e tempo ouvido**: gênero, lançamento e versões (ao vivo, remaster, remix…) do catálogo iTunes com fonte, data e confiança; revisão manual identificada; tempo estimado somando só durações confirmadas, com a cobertura em %.
+- **Trilha do #1**: modos manual, automático (associa arquivos da sua biblioteca local por etiquetas ID3/MP4/Vorbis) e automático com prioridade manual. As prévias do iTunes não são sincronizadas com animação/vídeo (regra da Apple).
+- **Projetos entre aparelhos**: chave de sincronização própria e cifragem AES-GCM no aparelho; servidor guarda só bytes cifrados (Upstash Redis via Vercel). Alternativa sem servidor: Exportar/Importar projeto.
+- **Notificações de marcos (opt-in)**: novo #1, certificações, aniversários de #1 e recordes, com resumo diário e horário silencioso em 24 h, enquanto o app está aberto.
 - **Design Adaptado para Smartphones (Samsung Galaxy S Ultra / One UI & iOS)**: modos Escuro, Claro e Sistema, PWA instalável com cache offline do histórico sincronizado, zero truncamento de ícones/botões entre `320px` e `430px` CSS (`DPR 3.75`) e transições nativas (`View Transitions API` + `<dialog>` top-layer).
 
 ## Desenvolvimento Local
@@ -50,6 +56,8 @@ O projeto possui adaptadores serverless prontos tanto para **Vercel** ([`vercel.
 1. Acesse https://vercel.com/new e importe o repositório `davidsilvagx/ChartsDavid`.
 2. Em **Environment Variables**, adicione `LASTFM_API_KEY` com sua chave da API do Last.fm.
 3. Clique em **Deploy** (`vercel.json` configura automaticamente `npm run build`, `dist` e `/api/*`).
+
+Sincronização entre aparelhos (opcional): em **Storage/Marketplace → Upstash (Redis)**, crie um banco gratuito e conecte ao projeto. A integração injeta `KV_REST_API_URL` e `KV_REST_API_TOKEN`; depois, faça um novo deploy. Sem isso, `/api/sync` responde `503` e o app oferece apenas o arquivo de projeto.
 
 ### Opção B — Cloudflare Pages
 1. Acesse **Cloudflare Dashboard → Workers & Pages → Create → Pages → Connect to Git** e selecione `davidsilvagx/ChartsDavid`.
