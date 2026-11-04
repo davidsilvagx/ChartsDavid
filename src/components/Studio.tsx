@@ -28,6 +28,8 @@ import { studioDefaults, type ChartWeek, type Item, type Kind, type StudioSettin
 import { trimTimeline } from '../lib/charts';
 import { cacheImageUrl, drawChart, palettes, prepareImages } from '../lib/canvas';
 import { resolveCatalogMedia } from '../lib/catalog';
+import { createLeaderResolver, LeaderAudioSession, type AudioStatus } from '../lib/leaderAudio';
+import { LeaderSoundtrack, useLeaderClips } from './LeaderSoundtrack';
 import { download } from '../lib/export';
 import { ChartCanvas, type ChartCanvasHandle } from './ChartCanvas';
 import { fitStudioCanvas } from '../lib/chartIndex';
@@ -45,10 +47,12 @@ export function Studio({
   onConsumeInitial,
   onError,
   onChoosePeriod,
+  onSoundStart,
   busy = false,
   preserveRange = false,
   username = 'David',
   kind = 'tracks',
+  audioNamespace = username,
 }: {
   charts: ChartWeek[];
   library: Item[];
@@ -58,10 +62,12 @@ export function Studio({
   onConsumeInitial?: () => void;
   onError: (s: string) => void;
   onChoosePeriod: () => void;
+  onSoundStart?: () => void;
   busy?: boolean;
   preserveRange?: boolean;
   username?: string;
   kind?: Kind;
+  audioNamespace?: string;
 }) {
   const [settings, setSettings] = useState<StudioSettings>(() => {
     try {
@@ -103,6 +109,17 @@ export function Studio({
   const [recording, setRecording] = useState(false);
   const [recordProgress, setRecordProgress] = useState(0);
   const [audioFile, setAudioFile] = useState<File | null>(null);
+  const audioBank=useLeaderClips(audioNamespace);
+  const clipsRef=useRef(audioBank.clips);clipsRef.current=audioBank.clips;
+  const previewAudio=useRef<LeaderAudioSession|null>(null);
+  const [audioStatus,setAudioStatus]=useState<AudioStatus>({phase:'idle',id:null});
+  const resumeSound=()=>{
+    onSoundStart?.();
+    try{
+      previewAudio.current??=new LeaderAudioSession(()=>clipsRef.current,setAudioStatus,{volume:settings.leaderVolume??.7});
+      void previewAudio.current.resume().catch(()=>setAudioStatus({phase:'error',id:null,message:'Toque em Play novamente para liberar o áudio neste navegador.'}));
+    }catch{setAudioStatus({phase:'error',id:null,message:'Áudio indisponível neste navegador. A animação continua funcionando.'});}
+  };
 
   const abortRecord = useRef<AbortController | null>(null);
   const previewPanelRef = useRef<HTMLDivElement>(null);
@@ -124,11 +141,13 @@ export function Studio({
     worker.postMessage({charts:charts.map(c=>({status:c.status,playCounts:c.playCounts,entries:c.entries.map(({id,plays})=>({id,plays}))})),library:library.map(({id,name})=>({id,name})),count:settings.barCount,metric:settings.barMetric});
     return()=>{active=false;worker.terminate();};
   },[charts,library,settings.mode,settings.barCount,settings.barMetric,autoBars]);
-  const preparing=busy||preparingBars;
+  const preparing=busy||preparingBars||(!!settings.leaderAudio&&audioBank.loading);
   const automaticItems = useMemo(() => {const ids=new Set(automaticIds);return library.filter(item=>ids.has(item.id));},[library,automaticIds]);
   const selectedItems = useMemo(() => settings.mode === 'bars' && autoBars ? automaticItems : library.filter(i => selected.includes(i.id)), [library,selected,automaticItems,settings.mode,autoBars]);
   const selectedSet = useMemo(() => new Set(selectedItems.map(i=>i.id)), [selectedItems]);
   const timeline = useMemo(() => preserveRange || (settings.mode === 'bars' && autoBars) ? charts : trimTimeline(charts, [...selectedSet]), [charts,selectedSet,settings.mode,autoBars,preserveRange]);
+  const leaderAt=useMemo(()=>settings.leaderAudio?createLeaderResolver(timeline,selectedItems,settings):()=>null,[timeline,selectedItems,settings.mode,settings.barMetric,settings.leaderAudio]);
+  const leaderRef=useRef(leaderAt);leaderRef.current=leaderAt;
   const setSelected = (action: SetStateAction<string[]>) => {
     const current = [...selectedSet];
     setAutoBars(false);
@@ -172,7 +191,7 @@ export function Studio({
   },[expanded]);
 
   useEffect(()=>{
-    const pause=()=>{if(document.hidden)setPlaying(false);};
+    const pause=()=>{if(document.hidden){setPlaying(false);previewAudio.current?.pause();if(abortRecord.current){abortRecord.current.abort();onError('Gravação interrompida ao sair da aba. Mantenha o estúdio visível para gravar.');}}};
     document.addEventListener('visibilitychange',pause);
     return()=>document.removeEventListener('visibilitychange',pause);
   },[]);
@@ -255,7 +274,10 @@ export function Studio({
     setPlaying(false);
   }, [selectedItems]);
 
-  useEffect(() => () => abortRecord.current?.abort(), []);
+  useEffect(() => () => {abortRecord.current?.abort();previewAudio.current?.dispose();}, []);
+  useEffect(()=>{if(!playing)previewAudio.current?.pause();},[playing]);
+  useEffect(()=>{if(!settings.leaderAudio){previewAudio.current?.dispose();previewAudio.current=null;setAudioStatus({phase:'idle',id:null});}},[settings.leaderAudio]);
+  useEffect(()=>{previewAudio.current?.setVolume(settings.leaderVolume??.7);},[settings.leaderVolume]);
 
   // Zero-re-render 60fps animation loop
   useEffect(() => {
@@ -280,6 +302,7 @@ export function Studio({
 
       // Paint directly on Canvas without React reconciliation
       canvasHandle.current?.drawAt(next);
+      if(settings.leaderAudio)void previewAudio.current?.setLeader(leaderRef.current(next));
       if (sliderRef.current) sliderRef.current.value = String(next);
       const wk = Math.floor(next);
       if (wk !== lastWeekShown) {
@@ -300,7 +323,7 @@ export function Studio({
       cancelAnimationFrame(frame);
       setPosition(positionRef.current);
     };
-  }, [playing, timeline.length, settings.speed, settings.previewFps]);
+  }, [playing, timeline.length, settings.speed, settings.previewFps, settings.leaderAudio]);
 
   useEffect(() => {
     if (sliderRef.current) sliderRef.current.value = String(position);
@@ -405,8 +428,13 @@ export function Studio({
     let ac: AudioContext | null = null;
     let source: AudioBufferSourceNode | null = null;
     let frame = 0;
+    let leaderRecording:LeaderAudioSession|null=null;
 
     try {
+      previewAudio.current?.pause();
+      if(settings.leaderAudio||audioFile)onSoundStart?.();
+      if(settings.leaderAudio){leaderRecording=new LeaderAudioSession(()=>clipsRef.current,setAudioStatus,{record:true,volume:settings.leaderVolume??.7});await leaderRecording.resume();}
+      else if(audioFile){ac=new AudioContext();await ac.resume();}
       await Promise.all(
         selectedItems.slice(0, 24).map(async it => {
           if (!it.image) {
@@ -427,9 +455,11 @@ export function Studio({
       if (!ctx) throw new Error('Canvas indisponível.');
 
       stream = output.captureStream(60);
-      if (audioFile) {
-        ac = new AudioContext();
-        await ac.resume();
+      if(leaderRecording?.destination){
+        for(const track of leaderRecording.destination.stream.getAudioTracks())stream.addTrack(track);
+        await leaderRecording.setLeader(leaderAt(0));
+      }
+      if (audioFile && ac) {
         const buffer = await ac.decodeAudioData(await audioFile.arrayBuffer());
         source = ac.createBufferSource();
         source.buffer = buffer;
@@ -468,6 +498,7 @@ export function Studio({
         const elapsed = (now - start) / 1000;
         const p = Math.min(timeline.length - 1, elapsed * settings.speed);
         drawChart(ctx, w, h, { charts: timeline, items: selectedItems, settings, position: p, dark: useDarkCanvas, reduced, username, kind });
+        if(leaderRecording)void leaderRecording.setLeader(leaderAt(p));
         positionRef.current = p;
         if(now-lastPreview>=100){canvasHandle.current?.drawAt(p);lastPreview=now;}
         if (sliderRef.current) sliderRef.current.value = String(p);
@@ -487,6 +518,7 @@ export function Studio({
     } finally {
       cancelAnimationFrame(frame);
       stream?.getTracks().forEach(t => t.stop());
+      leaderRecording?.dispose();
       try {
         source?.stop();
       } catch {
@@ -645,6 +677,8 @@ export function Studio({
             </div>
           )}
 
+          {!expanded&&<LeaderSoundtrack items={selectedItems} clips={audioBank.clips} loading={audioBank.loading} error={audioBank.error} enabled={!!settings.leaderAudio} volume={settings.leaderVolume??.7} status={audioStatus} disabled={recording} onSave={audioBank.save} onEnabled={value=>{update('leaderAudio',value);if(value&&playing)resumeSound();if(!value){previewAudio.current?.dispose();previewAudio.current=null;}}} onVolume={value=>update('leaderVolume',value)}/>}
+
           <div ref={stageRef} className={`canvas-stage ${viewMode === 'widescreen' ? 'widescreen-stage' : ''}`}>
             <ChartCanvas
               canvasRef={canvas}
@@ -672,6 +706,7 @@ export function Studio({
               disabled={recording || !timeline.length}
               onClick={() => {
                 setPlaying(false);
+                previewAudio.current?.stop();
                 positionRef.current = 0;
                 setPosition(0);
               }}
@@ -685,9 +720,11 @@ export function Studio({
               disabled={recording || preparing || !selectedItems.length || timeline.length < 2}
               onClick={() => {
                 if (positionRef.current >= timeline.length - 1) {
+                  previewAudio.current?.stop();
                   positionRef.current = 0;
                   setPosition(0);
                 }
+                if(!playing&&settings.leaderAudio)resumeSound();
                 setPlaying(p => !p);
               }}
               aria-label={playing ? 'Pausar animação' : 'Reproduzir animação'}
@@ -707,6 +744,7 @@ export function Studio({
               onChange={e => {
                 const val = Number(e.target.value);
                 setPlaying(false);
+                previewAudio.current?.stop();
                 positionRef.current = val;
                 setPosition(val);
               }}
@@ -917,6 +955,7 @@ export function Studio({
             </h2>
           </div>
           <fieldset disabled={recording}>
+            <label>Nome do seu chart<input aria-label="Nome do chart no vídeo" maxLength={48} value={settings.chartName??''} placeholder={`${username} · Hot 100`} onChange={e=>update('chartName',e.target.value)}/><small>Seu nome aparece na prévia e no vídeo, junto com as datas reais.</small></label>
             {settings.mode === 'lines' ? (
               <label>
                 Escala vertical fixa (posições)
