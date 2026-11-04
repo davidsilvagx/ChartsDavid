@@ -1,11 +1,12 @@
 import { getLibrary, itemOf, selectScrobblesForFilter } from './charts';
 import type { ItemStats } from './jury';
-import type { AliasRule, CachedWeek, Item, Kind, SourceFilter } from './types';
+import { addPersonalAwardStats } from './awardStats';
+import type { AliasRule, CachedWeek, Item, Kind, SourceFilter, Week } from './types';
 
 const kinds: Kind[] = ['tracks', 'albums', 'artists'];
-/** Itens de cada tipo no período (até 400) e estatísticas semanais para o júri automático. */
-export function buildPools(cached: CachedWeek[], deduplicate: boolean, aliases: AliasRule[] | undefined, source: SourceFilter) {
-  const pools = Object.fromEntries(kinds.map(kind => [kind, getLibrary(cached, kind, deduplicate, aliases, source).slice(0, 400)])) as Record<Kind, Item[]>;
+/** Até 400 obras por tipo e todos os artistas do período; estatísticas semanais para o júri automático. */
+export function buildPools(cached: CachedWeek[], deduplicate: boolean, aliases: AliasRule[] | undefined, source: SourceFilter, context?: { history: CachedWeek[]; calendar: Week[] }) {
+  const pools = Object.fromEntries(kinds.map(kind => { const items = getLibrary(cached, kind, deduplicate, aliases, source); return [kind, kind === 'artists' ? items : items.slice(0, 400)]; })) as Record<Kind, Item[]>;
   const stats = Object.fromEntries(kinds.map(kind => [kind, {} as Record<string, ItemStats>])) as Record<Kind, Record<string, ItemStats>>;
   if (!cached.length) return { pools, stats };
   const start = Math.min(...cached.map(w => w.week.start)), end = Math.max(...cached.map(w => w.week.end)), mid = start + (end - start) / 2;
@@ -23,5 +24,6 @@ export function buildPools(cached: CachedWeek[], deduplicate: boolean, aliases: 
       ranked.forEach(([id], i) => { const row = table[id]; if (!row) return; row.weeksActive++; if (i === 0) row.weeksAtOne++; if (i < 10) row.weeksTop10++; });
     }
   }
+  if (context) addPersonalAwardStats(stats, cached, context.history, context.calendar, deduplicate, aliases, source);
   return { pools, stats };
 }
