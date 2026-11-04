@@ -1,6 +1,6 @@
 import { api, delay } from './api';
 import { normalize, selectScrobblesForFilter } from './charts';
-import { deleteMeta, putMeta, readMetaRange } from './storage';
+import { deleteMeta, getMeta, putMeta, readMetaRange } from './storage';
 import type { CachedWeek, Item, Kind, SourceFilter } from './types';
 
 /** Marcadores explícitos no título (catálogo ou scrobble). Não classificam gênero. */
@@ -44,6 +44,8 @@ export interface MetaRecord {
   candidates?: number; versions: VersionTag[]; explicit?: boolean; note?: string;
   /** Artistas: primeiro lançamento e álbuns completos no catálogo (estimativa para Artista Revelação). */
   firstRelease?: string; albumCount?: number;
+  /** MusicBrainz/Wikidata: primeiro lançamento e anos de indicações/vitórias ao Grammy. */
+  mbFirstRelease?: string; grammyYears?: number[]; careerSource?: string;
 }
 export interface MetaReview { genre?: string; releaseDate?: string; durationMs?: number | null; versions?: VersionTag[]; reviewedAt: number; note?: string }
 export interface EffectiveMeta extends MetaRecord { review?: MetaReview; reviewed: boolean }
@@ -143,6 +145,11 @@ export async function loadMetadata(kind: Kind): Promise<Map<string, EffectiveMet
 }
 export async function saveReview(key: string, review: MetaReview | null) {
   if (review) await putMeta(`${REVIEW_PREFIX}${key}`, review); else await deleteMeta(`${REVIEW_PREFIX}${key}`);
+}
+/** Acrescenta dados de carreira (MusicBrainz/Wikidata) ao registro de um artista já consultado. */
+export async function mergeCareer(key: string, patch: Pick<MetaRecord, 'mbFirstRelease' | 'grammyYears' | 'careerSource'>) {
+  const current = await getMeta<MetaRecord>(`${PREFIX}${key}`);
+  if (current) await putMeta(`${PREFIX}${key}`, { ...current, ...patch });
 }
 export async function forgetMetadata(key: string) { await deleteMeta(`${PREFIX}${key}`); }
 

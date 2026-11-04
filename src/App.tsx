@@ -122,6 +122,7 @@ const Spotlight = lazy(() => import('./components/Spotlight').then(m => ({ defau
 const CatalogPanel = lazy(() => import('./components/CatalogPanel').then(m => ({ default: m.CatalogPanel })));
 const Extras = lazy(() => import('./components/Extras').then(m => ({ default: m.Extras })));
 const Welcome = lazy(() => import('./components/Welcome').then(m => ({ default: m.Welcome })));
+const OfficialAwards = lazy(() => import('./components/OfficialAwards').then(m => ({ default: m.OfficialAwards })));
 const DeviceSync = lazy(() => import('./components/DeviceSync').then(m => ({ default: m.DeviceSync })));
 const Loading = () => <div className="spotlight-loading" role="status"><MusicLoader size="md" /><span>Carregando…</span></div>;
 
@@ -1940,7 +1941,7 @@ function Detail({
         {awards.length ? <ul className="award-mentions">{awards.slice(0, 8).map(a => <li key={a.key} className={a.result}><GramophoneIcon size={18} /><span><strong>{a.result === 'win' ? 'Venceu' : 'Indicado'} · {a.category}</strong><small>{a.period} · {a.method}{a.work ? ` · com “${a.work}”` : ''}</small></span></li>)}</ul>
           : <p className="note">Ainda sem prêmios pessoais. Monte sua premiação em Extras para ver vitórias e indicações aqui.</p>}
         {!!press.length && <div className="press-list"><span className="eyebrow">NA IMPRENSA LASTCHART · ficção com dados reais</span>{press.map(p => <article key={p.t}><strong>{p.t}</strong>{p.d && <small>{p.d}</small>}</article>)}</div>}
-        <small className="note">Prêmios oficiais do Grammy não são exibidos: o app não tem uma fonte verificada integrada para isso.</small>
+        <Suspense fallback={null}><OfficialAwards item={item} /></Suspense>
       </section>
 
       {audit.charted && (audit.totalWeeksOut > 0 || audit.missingWeeksSinceDebut > 0) && (

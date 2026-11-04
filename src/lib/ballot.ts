@@ -50,10 +50,14 @@ const TOLERANCE = 122 * 86400;
 const releasedIn = (date: string | undefined, rules: Eligibility) => { if (!date) return null; const t = Date.parse(`${date}T12:00:00Z`) / 1000; return t >= rules.start - TOLERANCE && t < rules.end; };
 /** Artista Revelação (estimativa do catálogo): estreia nos 4 anos até o fim do período e no máximo 3 álbuns completos. */
 export function newArtistCheck(record: EffectiveMeta | undefined, rules: Eligibility): { ok: boolean | null; basis: string } {
-  if (!record?.firstRelease) return { ok: null, basis: 'Carreira não verificada no catálogo' };
-  const year = Number(record.firstRelease.slice(0, 4)), albums = record.albumCount ?? 0;
+  const prior = (record?.grammyYears ?? []).filter(y => y < rules.year).sort((a, b) => a - b)[0];
+  if (prior) return { ok: false, basis: `Já concorreu ao Grammy em ${prior} (Wikidata) · não é revelação` };
+  const dates = [record?.firstRelease, record?.mbFirstRelease].filter((d): d is string => !!d && /^\d{4}/.test(d)).sort();
+  if (!dates.length) return { ok: null, basis: 'Carreira não verificada no catálogo' };
+  const year = Number(dates[0].slice(0, 4)), albums = record?.albumCount ?? 0;
   const ok = year >= rules.year - 3 && albums <= 3;
-  return { ok, basis: `Estreia no catálogo em ${year} · ${albums} ${albums === 1 ? 'álbum' : 'álbuns'}${ok ? '' : year < rules.year - 3 ? ' · carreira longa demais para revelação' : ' · mais de 3 álbuns'}` };
+  const source = record?.mbFirstRelease && dates[0] === record.mbFirstRelease ? 'MusicBrainz' : 'catálogo';
+  return { ok, basis: `Estreia em ${year} (${source}) · ${albums} ${albums === 1 ? 'álbum' : 'álbuns'}${ok ? '' : year < rules.year - 3 ? ' · carreira longa demais para revelação' : ' · mais de 3 álbuns'}` };
 }
 /**
  * Sugestões só com critérios do próprio usuário e metadados verificados.

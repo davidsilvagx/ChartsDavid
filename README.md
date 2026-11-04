@@ -19,7 +19,8 @@ Aplicativo web e PWA independente integrado à API oficial do **Last.fm** e enri
 - **Catálogo verificado e tempo ouvido**: gênero, lançamento e versões (ao vivo, remaster, remix…) do catálogo iTunes com fonte, data e confiança; revisão manual identificada; tempo estimado somando só durações confirmadas, com a cobertura em %.
 - **Trilha do #1**: modos manual, automático (associa arquivos da sua biblioteca local por etiquetas ID3/MP4/Vorbis) e automático com prioridade manual. As prévias do iTunes não são sincronizadas com animação/vídeo (regra da Apple).
 - **Projetos entre aparelhos**: chave de sincronização própria e cifragem AES-GCM no aparelho; servidor guarda só bytes cifrados (Upstash Redis via Vercel). Alternativa sem servidor: Exportar/Importar projeto.
-- **Notificações de marcos (opt-in)**: novo #1, certificações, aniversários de #1 e recordes, com resumo diário e horário silencioso em 24 h, enquanto o app está aberto.
+- **Notificações de marcos (opt-in)**: novo #1, certificações, aniversários de #1 e recordes, com resumo diário e horário silencioso em 24 h; com o app fechado, Web Push diário (novo #1 da semana e recorde semanal).
+- **Carreira e Grammys oficiais**: primeiro lançamento e álbuns (MusicBrainz), vitórias e indicações (Wikidata) na tela de cada artista, álbum ou música; homônimos pedem escolha. Artista Revelação exclui quem já concorreu ao Grammy.
 - **Extras & prêmios**: aba própria com instruções de uso de cada recurso. Premiação com **júri automático** (6 jurados com critérios públicos, resultado lacrado) ou modo híbrido (você escolhe os indicados, o júri decide), elegibilidade por lançamento e Artista Revelação pela carreira no catálogo, comentários dos jurados e manchetes fictícias com dados reais.
 - **Seu perfil musical**: 16 perfis em 4 eixos, selos, relógio de audição e **signo musical** com árvore de habilidades, por semana, mês, ano ou todo o histórico.
 - **Comparação de até 5 perfis**: duelo, matriz de afinidade, parada do grupo, o que todos ouvem e quem ouviu primeiro.
@@ -61,7 +62,7 @@ O projeto possui adaptadores serverless prontos tanto para **Vercel** ([`vercel.
 2. Em **Environment Variables**, adicione `LASTFM_API_KEY` com sua chave da API do Last.fm.
 3. Clique em **Deploy** (`vercel.json` configura automaticamente `npm run build`, `dist` e `/api/*`).
 
-Sincronização entre aparelhos (opcional): em **Storage/Marketplace → Upstash (Redis)**, crie um banco gratuito e conecte ao projeto. A integração injeta `KV_REST_API_URL` e `KV_REST_API_TOKEN`; depois, faça um novo deploy. Sem isso, `/api/sync` responde `503` e o app oferece apenas o arquivo de projeto.
+Sincronização entre aparelhos e push: o projeto usa um **Vercel Blob privado** (`vercel blob create-store charts-david-sync --access private`), que injeta `BLOB_READ_WRITE_TOKEN`. Para notificações com o app fechado, configure `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` e `CRON_SECRET`; o cron diário está em `vercel.json` (`/api/push-cron`). Carreira e Grammys oficiais vêm do MusicBrainz e do Wikidata por `/api/career`, sem chave.
 
 ### Opção B — Cloudflare Pages
 1. Acesse **Cloudflare Dashboard → Workers & Pages → Create → Pages → Connect to Git** e selecione `davidsilvagx/ChartsDavid`.

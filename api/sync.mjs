@@ -1,6 +1,6 @@
 import { handleSync, storeFromEnv } from '../server/sync.mjs';
 
-const handler = request => handleSync(request, storeFromEnv(process.env));
+const handler = async request => handleSync(request, await storeFromEnv(process.env));
 export const GET = handler;
 export const PUT = handler;
 export const DELETE = handler;
