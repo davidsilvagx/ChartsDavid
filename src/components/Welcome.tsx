@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, Check, ExternalLink, Link2, Music2, Share2, UserRound } from 'lucide-react';
 import { ApiError, getProfile } from '../lib/api';
 import type { Profile, Settings } from '../lib/types';
@@ -9,6 +9,8 @@ import { shareInvite } from '../lib/invite';
 export function Welcome({ settings, onUse, onClose, onNotice, onError }: { settings: Settings; onUse: (profile: Profile) => void; onClose: () => void; onNotice: (s: string) => void; onError: (s: string) => void }) {
   const [step, setStep] = useState(0), [name, setName] = useState(''), [checking, setChecking] = useState(false), [found, setFound] = useState<Profile | null>(null), [error, setError] = useState('');
   const steps = ['Boas-vindas', 'Conta Last.fm', 'Conectar o player', 'Seu perfil'];
+  const contentRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => { contentRef.current?.closest('dialog')?.scrollTo({ top: 0, behavior: 'instant' }); }, [step]);
   const verify = async () => {
     const user = name.trim(); setError(''); setFound(null);
     if (!/^[\w.-]{2,100}$/.test(user)) { setError('Digite o nome de usuário do Last.fm (sem espaços).'); return; }
@@ -18,7 +20,7 @@ export function Welcome({ settings, onUse, onClose, onNotice, onError }: { setti
     finally { setChecking(false); }
   };
   return <Modal title="Use o LastChart com a sua música" subtitle={`Passo ${step + 1} de ${steps.length} · ${steps[step]}`} onClose={onClose} className="welcome-dialog">
-    <div className="welcome">
+    <div className="welcome" ref={contentRef}>
       <ol className="welcome-progress" aria-hidden="true">{steps.map((s, i) => <li key={s} className={i <= step ? 'on' : ''} />)}</ol>
       <div className="welcome-slide" key={step}>
         {step === 0 && <>
@@ -38,9 +40,9 @@ export function Welcome({ settings, onUse, onClose, onNotice, onError }: { setti
           <span className="welcome-icon"><Link2 size={30} /></span>
           <h3>Conecte o seu player ao Last.fm</h3>
           <ol className="welcome-how">
-            <li><strong>Spotify:</strong> no Last.fm, abra <em>Configurações › Aplicativos</em> e conecte o Spotify. Daí em diante, cada música entra sozinha.</li>
-            <li><strong>Outros players:</strong> use um app ou extensão de scrobbling compatível com o seu serviço (por exemplo, extensões de navegador como o Web Scrobbler).</li>
-            <li><strong>Histórico antigo:</strong> depois, em <em>Spotify & YT Music</em>, você pode importar os arquivos de histórico desses serviços.</li>
+            <li><div><strong>Spotify</strong><p>No Last.fm, abra <em>Configurações › Aplicativos</em> e conecte o Spotify. Daí em diante, cada música entra sozinha.</p></div></li>
+            <li><div><strong>Outros players</strong><p>Use um app ou extensão de scrobbling compatível com o seu serviço, como o Web Scrobbler no navegador.</p></div></li>
+            <li><div><strong>Histórico antigo</strong><p>Em <em>Spotify & YT Music</em>, você também pode importar os arquivos de histórico desses serviços.</p></div></li>
           </ol>
           <a className="button small" href="https://www.last.fm/settings/applications" target="_blank" rel="noreferrer"><span>Abrir aplicativos do Last.fm</span><ExternalLink size={14} /></a>
         </>}

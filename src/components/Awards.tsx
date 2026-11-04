@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, ChevronDown, Download, Gavel, Info, ListChecks, Lock, Plus, Search, Sparkles, Star, Trash2, UserRound, Wand2 } from 'lucide-react';
-import { GRAMMY_EDITION, grammyAreas, grammyById, grammyCategories, needLabels, searchCategories, subjectLabels, type GrammyArea } from '../lib/grammy';
-import { ballotKey, categoryOrder, ceremonyReadiness, conveneJury, type Eligibility, emptyBallot, freezeCeremony, manualNominee, nomineeFromItem, sanitizeBallot, subjectKind, suggestNominees, type Ballot, type BallotEntry, type RevealCard } from '../lib/ballot';
-import { judges, runJury, type ItemStats } from '../lib/jury';
-import { enrichItems, mergeCareer, metaKey, type EffectiveMeta } from '../lib/metadata';
-import { fetchCareer, grammyYears } from '../lib/career';
+import { ARTIST_OF_YEAR, GRAMMY_EDITION, grammyAreas, awardById, grammyCategories, needLabels, searchCategories, subjectLabels, type GrammyArea } from '../lib/grammy';
+import { ballotKey, categoryOrder, ceremonyReadiness, conveneJury, type Eligibility, emptyBallot, freezeCeremony, hasPersonalYearRules, personalEntryIssue, manualNominee, nomineeFromItem, sanitizeBallot, subjectKind, suggestNominees, type Ballot, type BallotEntry, type RevealCard } from '../lib/ballot';
+import { artistYearScores, judges, runJury, type ItemStats } from '../lib/jury';
+import { personalDebutCheck } from '../lib/awardStats';
+import { enrichItems, metaKey, type EffectiveMeta } from '../lib/metadata';
 import type { Item, Kind } from '../lib/types';
 import { Cover, MusicLoader, number } from './UI';
 import { GramophoneIcon } from './Gramophone';
@@ -36,16 +36,16 @@ export function Awards({ profile, period, periodLabel, title, pools, stats, meta
   const [juryReport, setJuryReport] = useState<{ decided: number; skipped: Array<{ categoryId: string; reason: string }> } | null>(null), [peek, setPeek] = useState(false);
   const jury = ballot.mode === 'jury';
   // Regras de elegibilidade: janela de lançamento do período (ou qualquer lançamento) e ano de referência.
-  const rules: Eligibility = useMemo(() => periodWindow ? { mode: ballot.eligibility, ...periodWindow } : { mode: 'any', start: 0, end: Date.now() / 1000, year: new Date().getFullYear() }, [periodWindow?.start, periodWindow?.end, ballot.eligibility]);
+  const rules: Eligibility = useMemo(() => periodWindow ? { mode: ballot.eligibility, ...periodWindow, period } : { mode: 'any', start: 0, end: Date.now() / 1000, year: period === 'all' ? new Date().getFullYear() : Number(period), period }, [periodWindow?.start, periodWindow?.end, period, ballot.eligibility]);
   const convene = () => { if (!pools) return; const result = conveneJury(ballot, pools, meta, stats, Date.now(), rules); save(result.ballot); setJuryReport({ decided: result.decided, skipped: result.skipped }); setPeek(false); };
-  // Um toque só: se faltam datas/carreiras no catálogo, verifica primeiro e convoca o júri ao terminar.
+  // Um toque só: verifica datas/durações necessárias no catálogo antes de convocar o júri.
   const [pendingConvene, setPendingConvene] = useState(false);
   const [verify, setVerify] = useState<{ done: number; total: number; current?: string } | null>(null);
   const verifyAbort = useRef<AbortController | null>(null);
   useEffect(() => () => verifyAbort.current?.abort(), []);
   const missing = (kind: Kind, n: number, need: (m?: EffectiveMeta) => boolean) => (pools?.[kind] ?? []).slice(0, n).filter(item => { const m = meta[kind]?.get(metaKey(kind, item)); return m?.status !== 'not-found' && need(m); });
-  const toVerify = pools ? { tracks: missing('tracks', 25, m => !m?.releaseDate), albums: missing('albums', 15, m => !m?.releaseDate), artists: missing('artists', 20, m => !m?.firstRelease), career: missing('artists', 20, m => !m?.careerSource) } : null;
-  const verifyCount = toVerify ? toVerify.tracks.length + toVerify.albums.length + toVerify.artists.length + toVerify.career.length : 0;
+  const toVerify = pools ? { tracks: ballot.selected.some(id => subjectKind(awardById.get(id)!) === 'tracks') ? missing('tracks', 25, m => !m?.releaseDate || !m?.durationMs) : [], albums: ballot.selected.some(id => subjectKind(awardById.get(id)!) === 'albums') ? missing('albums', 15, m => !m?.releaseDate) : [] } : null;
+  const verifyCount = toVerify ? toVerify.tracks.length + toVerify.albums.length : 0;
   useEffect(() => { if (pendingConvene && !verify) { setPendingConvene(false); convene(); } }, [pendingConvene, verify, meta]);
   const conveneSmart = () => { if (verifyCount > 0 && navigator.onLine) { setPendingConvene(true); void runVerify(); } else convene(); };
   const runVerify = async () => {
@@ -53,29 +53,21 @@ export function Awards({ profile, period, periodLabel, title, pools, stats, meta
     verifyAbort.current?.abort(); const abort = new AbortController(); verifyAbort.current = abort;
     let base = 0; setVerify({ done: 0, total: verifyCount });
     try {
-      for (const kind of ['tracks', 'albums', 'artists'] as Kind[]) {
+      for (const kind of ['tracks', 'albums'] as const) {
         const items = toVerify[kind];
         await enrichItems(kind, items, { signal: abort.signal, refresh: true, apiKey, onProgress: p => setVerify({ done: base + p.done, total: verifyCount, current: p.current }) });
         base += items.length;
         await onMetaRefresh();
       }
-      // Carreira e Grammys oficiais (MusicBrainz + Wikidata): quem já concorreu não é “revelação”.
-      for (const item of toVerify.career) {
-        abort.signal.throwIfAborted();
-        setVerify({ done: base, total: verifyCount, current: `${item.name} · carreira e Grammys` });
-        const info = await fetchCareer(item).catch(() => null);
-        if (info?.status === 'matched') await mergeCareer(metaKey('artists', item), { mbFirstRelease: info.career?.firstRelease || undefined, grammyYears: grammyYears(info), careerSource: 'MusicBrainz + Wikidata' });
-        else if (info?.status === 'not-found' || info?.status === 'ambiguous') await mergeCareer(metaKey('artists', item), { careerSource: info.status === 'ambiguous' ? 'ambíguo' : 'não encontrado' });
-        base++;
-      }
     } catch { /* cancelado: o que já foi consultado fica salvo */ } finally { await onMetaRefresh(); setVerify(null); }
   };
   const favorites = useMemo(() => new Set(ballot.favorites), [ballot.favorites]);
   const selected = useMemo(() => new Set(ballot.selected), [ballot.selected]);
-  const visible = useMemo(() => searchCategories(query, area, onlyFav ? favorites : undefined), [query, area, onlyFav, favorites]);
-  const readiness = useMemo(() => ceremonyReadiness(ballot), [ballot]);
+  const visible = useMemo(() => searchCategories(query, area, onlyFav ? favorites : undefined, true), [query, area, onlyFav, favorites]);
+  const ruleIssues = useMemo(() => Object.fromEntries(Object.values(ballot.entries).flatMap(entry => { const reason = personalEntryIssue(entry, pools, stats, rules); return reason ? [[entry.categoryId, reason]] : []; })), [ballot, pools, stats, rules]);
+  const readiness = useMemo(() => ceremonyReadiness(ballot, ruleIssues), [ballot, ruleIssues]);
   const orderedSelected = useMemo(() => [...ballot.selected].sort((a, b) => (categoryOrder.get(a) ?? 0) - (categoryOrder.get(b) ?? 0)), [ballot.selected]);
-  const frozenForExport = useMemo(() => freezeCeremony(ballot), [ballot]);
+  const frozenForExport = useMemo(() => freezeCeremony(ballot, ruleIssues), [ballot, ruleIssues]);
 
   const toggle = (list: 'selected' | 'favorites', id: string) => save({ ...ballot, [list]: ballot[list].includes(id) ? ballot[list].filter(v => v !== id) : [...ballot[list], id] });
   const setEntry = (id: string, entry: BallotEntry | null) => { const entries = { ...ballot.entries }; if (entry) entries[id] = { ...entry, updatedAt: Date.now() }; else delete entries[id]; save({ ...ballot, entries }); };
@@ -83,7 +75,7 @@ export function Awards({ profile, period, periodLabel, title, pools, stats, meta
   return <div className="awards">
     <div className="awards-intro"><GramophoneIcon size={44} /><div><h3>Premiação pessoal · {GRAMMY_EDITION.label}</h3><p>Categorias com os nomes do Grammy (traduzidos e com o nome oficial). Você vota; o app sugere candidatos só com critérios explícitos. Simulação independente, sem vínculo com a Recording Academy.</p></div></div>
     <div className="awards-steps" role="tablist" aria-label="Etapas da premiação">
-      {([['catalog', 'Categorias', `${ballot.selected.length}/100`], ['ballot', 'Cédula', `${readiness.ready.length} prontas`], ['ceremony', 'Cerimônia', readiness.ready.length ? 'revisar' : '—']] as const).map(([value, label, hint]) =>
+      {([['catalog', 'Categorias', `${ballot.selected.length} escolhidas`], ['ballot', 'Cédula', `${readiness.ready.length} prontas`], ['ceremony', 'Cerimônia', readiness.ready.length ? 'revisar' : '—']] as const).map(([value, label, hint]) =>
         <button key={value} role="tab" type="button" aria-selected={step === value} className={`awards-step ${step === value ? 'active' : ''}`} onClick={() => setStep(value)}><strong>{label}</strong><small>{hint}</small></button>)}
     </div>
     {error && <p className="alert error" role="alert">{error}</p>}
@@ -94,7 +86,7 @@ export function Awards({ profile, period, periodLabel, title, pools, stats, meta
         <select aria-label="Área do catálogo" value={area} onChange={e => setArea(e.target.value as GrammyArea | 'all')}><option value="all">Todas as áreas</option>{Object.entries(grammyAreas).map(([id, a]) => <option key={id} value={id}>{a.label}</option>)}</select>
         <button type="button" className={`button small ${onlyFav ? 'primary' : ''}`} aria-pressed={onlyFav} onClick={() => setOnlyFav(!onlyFav)}><Star size={14} /><span>Favoritas</span></button>
       </div>
-      <p className="note">{visible.length} de 100 categorias · {ballot.selected.length} na sua cerimônia. Toque no nome para incluir ou retirar.</p>
+      <p className="note">{visible.length} de 101 categorias (100 do Grammy + Artista do Ano, exclusiva LastChart) · {ballot.selected.length} na sua cerimônia. Toque no nome para incluir ou retirar.</p>
       {(Object.keys(grammyAreas) as GrammyArea[]).map(areaId => {
         const list = visible.filter(c => c.area === areaId);
         if (!list.length) return null;
@@ -103,7 +95,7 @@ export function Awards({ profile, period, periodLabel, title, pools, stats, meta
           <ul>{list.map(category => <li key={category.id} className={selected.has(category.id) ? 'is-selected' : ''}>
             <button type="button" className="awards-pick" aria-pressed={selected.has(category.id)} onClick={() => toggle('selected', category.id)}>
               <i aria-hidden="true">{selected.has(category.id) && <Check size={13} />}</i>
-              <span><strong>{category.label}{category.change === 'new' && <em className="tag">novo em 2027</em>}</strong><small lang="en">{category.official}</small><small>{subjectLabels[category.subject]}{category.needs.length ? ` · ${category.needs.map(n => needLabels[n]).join('; ')}` : ''}</small></span>
+              <span><strong>{category.label}{category.personal && <em className="tag">LastChart</em>}{category.change === 'new' && <em className="tag">novo em 2027</em>}</strong><small lang="en">{category.official}</small><small>{subjectLabels[category.subject]}{category.needs.length ? ` · ${category.needs.map(n => needLabels[n]).join('; ')}` : ''}</small></span>
             </button>
             <button type="button" className={`icon-button ${favorites.has(category.id) ? 'is-favorite' : ''}`} aria-label={`${favorites.has(category.id) ? 'Remover' : 'Marcar'} ${category.label} como favorita`} aria-pressed={favorites.has(category.id)} onClick={() => toggle('favorites', category.id)}><Star size={15} fill={favorites.has(category.id) ? 'currentColor' : 'none'} /></button>
           </li>)}</ul>
@@ -119,20 +111,21 @@ export function Awards({ profile, period, periodLabel, title, pools, stats, meta
       </div>
       <div className="eligibility-panel">
         <div className="segmented compact-seg" role="group" aria-label="Elegibilidade">{([['release', 'Lançados no período'], ['any', 'Qualquer lançamento']] as const).map(([value, label]) => <button key={value} type="button" disabled={!periodWindow} className={rules.mode === value ? 'selected' : ''} aria-pressed={rules.mode === value} onClick={() => save({ ...ballot, eligibility: value })}>{label}</button>)}</div>
-        <small>{periodWindow ? rules.mode === 'release' ? 'Como no Grammy: só obras lançadas na janela do período (com 4 meses de tolerância). Artista Revelação exige estreia recente e até 3 álbuns, pelo catálogo.' : 'Qualquer data de lançamento. Artista Revelação continua exigindo estreia recente.' : 'Em todo o histórico vale qualquer lançamento; Artista Revelação usa estreia nos últimos 4 anos.'}</small>
+        <small>{periodWindow ? rules.mode === 'release' ? 'Para as demais obras, vale a janela de lançamento com quatro meses de tolerância.' : 'Para as demais obras, vale qualquer data de lançamento.' : 'Escolha um ano para Gravação do Ano, Artista Revelação e Artista do Ano.'} Gravação do Ano usa o Top 20 ouvido; Revelação exige estreia no seu chart naquele ano; Artista do Ano considera só o desempenho no ano. Não dependem da carreira real nem da data de lançamento.</small>
         {verify ? <div className="catalog-progress" role="status"><MusicLoader size="sm" /><span>Verificando {verify.done}/{verify.total}{verify.current ? ` · ${verify.current}` : ''}</span><progress max={verify.total || 1} value={verify.done} /><button type="button" className="button small" onClick={() => verifyAbort.current?.abort()}>Parar</button></div>
           : verifyCount > 0 && <button type="button" className="button small" disabled={!navigator.onLine} onClick={() => void runVerify()}><Search size={14} /><span>Verificar elegibilidade no catálogo · {verifyCount} itens · ~{Math.max(1, Math.ceil(verifyCount * 3.6 / 60))} min</span></button>}
       </div>
       {jury && <div className="jury-panel">
-        <p>Seis jurados analisam o seu histórico, cada um por um critério, e somam pontos (contagem Borda: 1º lugar vale mais). O resultado fica <strong>lacrado</strong> até a cerimônia. Eles não avaliam qualidade artística: só os seus hábitos.</p>
+        <p>Seis jurados analisam o seu histórico, cada um por um critério, e somam pontos (contagem Borda: 1º lugar vale mais). O resultado fica <strong>lacrado</strong> até a cerimônia. Eles não avaliam qualidade artística: só os seus hábitos. Artista do Ano usa uma pontuação própria: 45% faixas diferentes no Top 10, 35% plays e 20% semanas com música em #1.</p>
         <div className="jury-faces" aria-hidden="true">{judges.map((j, i) => <span key={j.id} style={{ animationDelay: `${i * 70}ms` }}><JurorAvatar id={j.id} size={36} /></span>)}</div>
         <details><summary>Conheça os jurados</summary><ul className="jury-list">{judges.map(j => <li key={j.id}><JurorAvatar id={j.id} size={30} /><span><strong>{j.name}</strong><small>{j.criterion}</small></span></li>)}</ul><small>Quem não tem dado para todos os indicados se abstém, sem chutar. Empate final: mais reproduções.</small></details>
         <div className="inline-actions"><button type="button" className="button primary" disabled={!pools || !ballot.selected.length || !!verify} onClick={conveneSmart}>{!pools ? <MusicLoader size="sm" tone="ink" /> : <Gavel size={16} />}<span>{Object.values(ballot.entries).some(e => e.method === 'jury') ? 'Convocar o júri de novo' : 'Convocar o júri'}</span></button>
           {Object.values(ballot.entries).some(e => e.method === 'jury') && <button type="button" className="text-button" aria-pressed={peek} onClick={() => setPeek(!peek)}>{peek ? 'Lacrar resultados' : 'Espiar resultados (estraga a surpresa)'}</button>}</div>
-        {pendingConvene && verify && <p className="ballot-status" role="status"><MusicLoader size="sm" /> Conferindo lançamentos e carreiras no catálogo antes de o júri votar…</p>}
+        {pendingConvene && verify && <p className="ballot-status" role="status"><MusicLoader size="sm" /> Conferindo metadados das obras antes de o júri votar…</p>}
         {juryReport && <p className="ballot-status ok" role="status"><Lock size={14} /> {juryReport.decided} {juryReport.decided === 1 ? 'categoria decidida' : 'categorias decididas'} e lacradas.{juryReport.skipped.length ? ` ${juryReport.skipped.length} sem dados para o júri: vote nelas ou indique manualmente.` : ''}</p>}
-        {!!juryReport?.skipped.length && <details className="jury-skipped"><summary>Por que algumas ficaram de fora?</summary><ul>{juryReport.skipped.map(x => <li key={x.categoryId}><strong>{grammyById.get(x.categoryId)?.label}</strong><small>{x.reason}</small></li>)}</ul></details>}
+        {!!juryReport?.skipped.length && <details className="jury-skipped"><summary>Por que algumas ficaram de fora?</summary><ul>{juryReport.skipped.map(x => <li key={x.categoryId}><strong>{awardById.get(x.categoryId)?.label}</strong><small>{x.reason}</small></li>)}</ul></details>}
       </div>}
+      {!selected.has(ARTIST_OF_YEAR) && <button type="button" className="button small" onClick={() => toggle('selected', ARTIST_OF_YEAR)}><Plus size={15}/><span>Adicionar Artista do Ano · exclusiva LastChart</span></button>}
       <details className="period-help"><summary>Como votar?</summary><p>Para cada categoria, aceite as sugestões, procure no seu acervo ou digite um indicado manual. Depois marque o vencedor (mais de um vira empate). Sugestões usam reproduções e gênero do catálogo; elas não comprovam créditos, formação, subgênero ou elegibilidade oficial. Período: {periodLabel}.</p></details>
       {loading && <div className="spotlight-loading" role="status"><MusicLoader size="md" /><span>Reunindo músicas, álbuns e artistas do período…</span></div>}
       {!orderedSelected.length && <p className="note">Nenhuma categoria escolhida. Abra Categorias e selecione as que entrarão na sua cerimônia.</p>}
@@ -144,11 +137,11 @@ export function Awards({ profile, period, periodLabel, title, pools, stats, meta
       <h4>Revisão antes da cerimônia</h4>
       <p>{title} · {periodLabel}. O resultado é congelado ao começar: mudanças posteriores não alteram a revelação em andamento.</p>
       <ul className="awards-readiness">
-        {readiness.ready.map(id => { const entry = ballot.entries[id]; return <li key={id} className="ok">{entry.method === 'jury' ? <Lock size={15} /> : <Check size={15} />}<span><strong>{grammyById.get(id)!.label}</strong><small>{entry.method === 'jury' && !peek ? 'Decidido pelo júri · lacrado até a revelação' : `${entry.winners.length > 1 ? 'Empate: ' : 'Vencedor: '}${entry.nominees.filter(n => entry.winners.includes(n.id)).map(n => n.name).join(' & ')}`} · {entry.nominees.length} indicados</small></span></li>; })}
-        {readiness.issues.map(issue => <li key={issue.categoryId} className="warn"><Info size={15} /><span><strong>{grammyById.get(issue.categoryId)!.label}</strong><small>{issue.reason} Fica fora da cerimônia até resolver.</small></span></li>)}
+        {readiness.ready.map(id => { const entry = ballot.entries[id]; return <li key={id} className="ok">{entry.method === 'jury' ? <Lock size={15} /> : <Check size={15} />}<span><strong>{awardById.get(id)!.label}</strong><small>{entry.method === 'jury' && !peek ? 'Decidido pelo júri · lacrado até a revelação' : `${entry.winners.length > 1 ? 'Empate: ' : 'Vencedor: '}${entry.nominees.filter(n => entry.winners.includes(n.id)).map(n => n.name).join(' & ')}`} · {entry.nominees.length} indicados</small></span></li>; })}
+        {readiness.issues.map(issue => <li key={issue.categoryId} className="warn"><Info size={15} /><span><strong>{awardById.get(issue.categoryId)!.label}</strong><small>{issue.reason} Fica fora da cerimônia até resolver.</small></span></li>)}
       </ul>
       <div className="awards-actions">
-        <button type="button" className="button primary" disabled={!readiness.ready.length} onClick={() => setCeremony(freezeCeremony(ballot))}><GramophoneIcon size={19} /><span>Começar cerimônia · {readiness.ready.length} {readiness.ready.length === 1 ? 'categoria' : 'categorias'}</span></button>
+        <button type="button" className="button primary" disabled={!readiness.ready.length} onClick={() => setCeremony(freezeCeremony(ballot, ruleIssues))}><GramophoneIcon size={19} /><span>Começar cerimônia · {readiness.ready.length} {readiness.ready.length === 1 ? 'categoria' : 'categorias'}</span></button>
         <button type="button" className="button" onClick={() => setStep('ballot')}>Voltar à cédula</button>
       </div>
       {!!frozenForExport.length && <div className="spotlight-export"><span>Card do prêmio</span><label>Categoria<select aria-label="Categoria do card" value={exportId || frozenForExport[0].category.id} onChange={e => setExportId(e.target.value)}>{frozenForExport.map(c => <option key={c.category.id} value={c.category.id}>{c.category.label}</option>)}</select></label>
@@ -160,51 +153,58 @@ export function Awards({ profile, period, periodLabel, title, pools, stats, meta
 }
 
 function BallotCard({ categoryId, entry, pools, meta, stats, rules, sealed, skipped, onChange, onRemove }: { categoryId: string; entry?: BallotEntry; pools: Pools | null; meta: MetaPools; stats: Partial<Record<Kind, Record<string, ItemStats>>>; rules: Eligibility; sealed?: boolean; skipped?: string; onChange: (entry: BallotEntry | null) => void; onRemove: () => void }) {
-  const category = grammyById.get(categoryId)!;
+  const category = awardById.get(categoryId)!;
   const kind = subjectKind(category);
   const [adding, setAdding] = useState<'search' | 'manual' | null>(null), [query, setQuery] = useState(''), [manualName, setManualName] = useState(''), [manualArtist, setManualArtist] = useState('');
-  const suggestion = useMemo(() => pools ? suggestNominees(category, pools, meta, 5, rules) : null, [category, pools, meta, rules]);
+  const suggestion = useMemo(() => pools ? suggestNominees(category, pools, meta, 5, rules, stats) : null, [category, pools, meta, rules, stats]);
+  const issue = entry ? personalEntryIssue(entry, pools, stats, rules) : undefined;
+  const annual = hasPersonalYearRules(categoryId);
   const nominees = entry?.nominees ?? [];
-  const base: BallotEntry = entry ?? { categoryId, nominees: [], winners: [], method: 'vote', updatedAt: Date.now() };
-  const results = useMemo(() => kind && pools?.[kind] && query.trim().length >= 2 ? pools[kind]!.filter(i => `${i.name} ${i.artist}`.toLowerCase().includes(query.toLowerCase()) && !nominees.some(n => n.id === i.id)).slice(0, 8) : [], [kind, pools, query, nominees]);
-  const add = (nominee: BallotEntry['nominees'][number]) => { if (nominees.length >= 10) return; onChange({ ...base, nominees: [...nominees, nominee], method: 'vote' }); };
-  const ready = !!entry?.winners.length;
+  const base: BallotEntry = entry ?? { categoryId, nominees: [], winners: [], method: 'vote', updatedAt: Date.now(), ...(annual ? { rulesVersion: 2 as const } : {}) };
+  const candidates = useMemo(() => { const items = kind ? pools?.[kind] ?? [] : []; if (annual && rules.period === 'all') return []; if (categoryId === 'best-new-artist') return items.filter(i => rules.period !== 'all' && personalDebutCheck(stats.artists?.[i.id], rules.year).ok === true); if (categoryId === 'record-of-the-year') return [...items].filter(i => i.plays > 0).sort((a,b) => b.plays-a.plays || a.name.localeCompare(b.name) || a.id.localeCompare(b.id)).slice(0,20); if (categoryId === ARTIST_OF_YEAR) { const scores = artistYearScores(stats.artists ?? {}); return items.filter(i => scores[i.id]); } return items; }, [kind, pools, categoryId, rules, stats, annual]);
+  const results = useMemo(() => query.trim().length >= 2 ? candidates.filter(i => `${i.name} ${i.artist}`.toLowerCase().includes(query.toLowerCase()) && !nominees.some(n => n.id === i.id)).slice(0,8) : [], [candidates, query, nominees]);
+  const add = (nominee: BallotEntry['nominees'][number]) => { if (nominees.length >= (categoryId === 'record-of-the-year' ? 5 : 10) || annual && rules.period === 'all') return; onChange({ ...base, nominees: [...nominees, nominee], method: 'vote' }); };
+  const ready = !!entry?.winners.length && !issue;
   const [juryNote, setJuryNote] = useState('');
   const juryEligible = nominees.filter(n => n.kind !== 'manual');
   // Modo híbrido: você escolhe os indicados e o júri interno decide em segredo.
   const askJury = () => {
     const result = runJury(category, juryEligible, stats, meta);
+    if (issue) { setJuryNote(issue); return; }
     if (!result) { setJuryNote('O júri precisa de pelo menos dois indicados do seu acervo com dados no período.'); return; }
     setJuryNote(juryEligible.length < nominees.length ? 'Indicações manuais não entram no júri (não têm dados de audição).' : '');
     onChange({ ...entry!, nominees: juryEligible, method: 'jury', jury: result, winners: [result.winner] });
   };
   return <article className={`ballot-card ${ready ? 'is-ready' : ''}`}>
-    <div className="ballot-head"><div><span className="eyebrow">{grammyAreas[category.area].label}</span><h4>{category.label}</h4><small lang="en">{category.official}</small></div><button type="button" className="icon-button" aria-label={`Retirar ${category.label} da cerimônia`} onClick={onRemove}><Trash2 size={15} /></button></div>
-    {!nominees.length && suggestion && <div className="ballot-suggestion">
-      {suggestion.nominees.length ? <><p><Wand2 size={14} /> {suggestion.criterion}</p><button type="button" className="button small" onClick={() => onChange({ categoryId, nominees: suggestion.nominees, winners: [], method: 'suggestion', updatedAt: Date.now(), note: suggestion.criterion })}><Sparkles size={14} /><span>Usar {suggestion.nominees.length} sugestões</span></button></>
+    <div className="ballot-head"><div><span className="eyebrow">{category.personal ? 'Exclusiva LastChart' : grammyAreas[category.area].label}</span><h4>{category.label}</h4><small lang="en">{category.official}</small></div><button type="button" className="icon-button" aria-label={`Retirar ${category.label} da cerimônia`} onClick={onRemove}><Trash2 size={15} /></button></div>
+    {issue && <p className="alert" role="status">{issue}</p>}
+    {entry?.note && <details className="ballot-criterion"><summary>Critério desta categoria</summary><p>{entry.note}</p></details>}
+    {(!nominees.length || issue) && suggestion && <div className="ballot-suggestion">
+      {suggestion.nominees.length ? <><p><Wand2 size={14} /> {suggestion.criterion}</p><button type="button" className="button small" onClick={() => onChange({ categoryId, nominees: suggestion.nominees, winners: [], method: 'suggestion', updatedAt: Date.now(), note: suggestion.criterion, ...(annual ? { rulesVersion: 2 as const } : {}) })}><Sparkles size={14} /><span>{nominees.length ? 'Atualizar indicados' : `Usar ${suggestion.nominees.length} sugestões`}</span></button></>
         : <p className="note">{suggestion.insufficient}</p>}
+      {!!nominees.length && <small>Atualizar substitui os indicados e votos apenas desta categoria.</small>}
     </div>}
     {skipped && !entry && <p className="note">Júri sem dados: {skipped}</p>}
     {sealed && entry ? <div className="ballot-sealed"><Lock size={18} /><div><strong>Decidido pelo júri · lacrado</strong><small>{entry.nominees.length} indicados: {entry.nominees.map(n => n.name).join(', ')}. O vencedor aparece na cerimônia.</small></div><button type="button" className="text-button" onClick={() => onChange({ ...entry, method: 'vote', jury: undefined, winners: [] })}>Votar eu mesmo</button></div> :
     !!nominees.length && <ol className="ballot-nominees">{nominees.map(n => {
       const winner = entry!.winners.includes(n.id);
       return <li key={n.id} className={winner ? 'is-winner' : ''}>
-        <button type="button" className="ballot-vote" aria-pressed={winner} aria-label={`${winner ? 'Desmarcar' : 'Escolher'} ${n.name} como vencedor`} onClick={() => onChange({ ...entry!, winners: winner ? entry!.winners.filter(w => w !== n.id) : [...entry!.winners, n.id].slice(-3) })}>{winner ? <GramophoneIcon size={18} /> : <span className="vote-ring" />}</button>
+        <button type="button" className="ballot-vote" disabled={!!issue} aria-pressed={winner} aria-label={`${winner ? 'Desmarcar' : 'Escolher'} ${n.name} como vencedor`} onClick={() => onChange({ ...entry!, winners: winner ? entry!.winners.filter(w => w !== n.id) : [...entry!.winners, n.id].slice(-3) })}>{winner ? <GramophoneIcon size={18} /> : <span className="vote-ring" />}</button>
         <Cover item={n} /><span className="truncate"><strong>{n.name}</strong><small>{n.artist}{n.plays ? ` · ${number(n.plays)} plays` : ''}</small><small className="basis">{n.basis}</small></span>
         <button type="button" className="icon-button" aria-label={`Remover indicado ${n.name}`} onClick={() => { const next = nominees.filter(x => x.id !== n.id); onChange(next.length ? { ...entry!, nominees: next, winners: entry!.winners.filter(w => w !== n.id) } : null); }}><Trash2 size={14} /></button>
       </li>;
     })}</ol>}
-    {!sealed && juryEligible.length >= 2 && <button type="button" className="button small jury-ask" onClick={askJury}><Gavel size={14} /><span>Júri decide entre os seus {juryEligible.length} indicados</span></button>}
+    {!sealed && !issue && juryEligible.length >= 2 && <button type="button" className="button small jury-ask" onClick={askJury}><Gavel size={14} /><span>Júri decide entre os seus {juryEligible.length} indicados</span></button>}
     {juryNote && <p className="note">{juryNote}</p>}
-    {sealed ? null : entry?.winners.length ? <p className="ballot-status ok"><Check size={14} /> {entry.winners.length > 1 ? `Empate entre ${entry.winners.length}` : 'Vencedor escolhido'} · {entry.method === 'jury' ? 'pelo júri' : entry.method === 'suggestion' ? 'a partir de sugestões' : 'voto pessoal'}</p> : nominees.length ? <p className="ballot-status">Marque o vencedor tocando no círculo.</p> : null}
+    {sealed || issue ? null : entry?.winners.length ? <p className="ballot-status ok"><Check size={14} /> {entry.winners.length > 1 ? `Empate entre ${entry.winners.length}` : 'Vencedor escolhido'} · {entry.method === 'jury' ? 'pelo júri' : entry.method === 'suggestion' ? 'a partir de sugestões' : 'voto pessoal'}</p> : nominees.length ? <p className="ballot-status">Marque o vencedor tocando no círculo.</p> : null}
     {!sealed && <div className="ballot-add">
       {kind && <button type="button" className="text-button" aria-expanded={adding === 'search'} onClick={() => setAdding(adding === 'search' ? null : 'search')}><Search size={14} /> Procurar {kindNames[kind]}</button>}
-      <button type="button" className="text-button" aria-expanded={adding === 'manual'} onClick={() => setAdding(adding === 'manual' ? null : 'manual')}><Plus size={14} /> Indicado manual</button>
+      {!annual && <button type="button" className="text-button" aria-expanded={adding === 'manual'} onClick={() => setAdding(adding === 'manual' ? null : 'manual')}><Plus size={14} /> Indicado manual</button>}
     </div>}
     {adding === 'search' && kind && <div className="ballot-search"><input type="search" aria-label={`Buscar ${kindNames[kind]} no período`} placeholder={`Nome ou artista (${kindNames[kind]} do período)`} value={query} onChange={e => setQuery(e.target.value)} />
       {!pools ? <MusicLoader size="sm" /> : <ul>{results.map(item => <li key={item.id}><button type="button" onClick={() => { add(nomineeFromItem(item, kind)); setQuery(''); }}><Cover item={item} /><span className="truncate"><strong>{item.name}</strong><small>{item.artist} · {number(item.plays)} plays</small></span><Plus size={14} /></button></li>)}{query.trim().length >= 2 && !results.length && <li className="note">Nada encontrado neste período.</li>}</ul>}
     </div>}
-    {adding === 'manual' && <form className="ballot-manual" onSubmit={e => { e.preventDefault(); if (!manualName.trim()) return; add(manualNominee(manualName, manualArtist)); setManualName(''); setManualArtist(''); setAdding(null); }}>
+    {!annual && adding === 'manual' && <form className="ballot-manual" onSubmit={e => { e.preventDefault(); if (!manualName.trim()) return; add(manualNominee(manualName, manualArtist)); setManualName(''); setManualArtist(''); setAdding(null); }}>
       <input aria-label="Nome do indicado" placeholder={category.subject === 'person' ? 'Nome da pessoa' : 'Título'} value={manualName} maxLength={200} onChange={e => setManualName(e.target.value)} required />
       <input aria-label="Artista ou crédito" placeholder="Artista / crédito (opcional)" value={manualArtist} maxLength={200} onChange={e => setManualArtist(e.target.value)} />
       <button type="submit" className="button small">Adicionar</button>

@@ -73,20 +73,20 @@ export function Ceremony({ cards, title, period, reduced, onClose }: { cards: Re
         <small className="cer-disclaimer">Simulação pessoal independente, com categorias inspiradas nos nomes oficiais. Não é um resultado da Recording Academy.</small>
       </div> : card && <>
         <div className="cer-head">
-          <span className="eyebrow">Categoria {state.index + 1} de {cards.length} · {grammyAreas[card.category.area].label}</span>
+          <span className="eyebrow">Categoria {state.index + 1} de {cards.length} · {card.category.personal ? 'Exclusiva LastChart' : grammyAreas[card.category.area].label}</span>
           <h2>{card.category.label}</h2>
           <p lang="en">{card.category.official}</p>
         </div>
         <div className="cer-curtain-frame">
-          <div className={`cer-curtains ${curtainsClosed ? 'is-closed' : 'is-open'}`} aria-hidden="true"><i className="left" /><i className="right" /><b className="valance" /></div>
+          {animating&&<div className={`cer-curtains ${curtainsClosed ? 'is-closed' : 'is-open'}`} aria-hidden="true"><i className="left" /><i className="right" /></div>}
           <div className="cer-window">
             {(state.phase === 'revealed' || state.phase === 'curtains') && winner ? <div className="cer-winner" key={state.reveals}>
               <div className="cer-cover"><Cover item={winner} size="large" /></div>
               <span className="cer-label">{card.winners.length > 1 ? `Empate · ${card.winners.length} vencedores` : 'E o prêmio vai para'}</span>
               <h3>{card.winners.map(w => w.name).join(' & ')}</h3>
               <p>{[...new Set(card.winners.map(w => w.artist))].join(' · ')}</p>
-              <small>{card.method === 'jury' ? `Decisão do júri · ${card.jury?.totals[winner.id] ?? 0} pontos` : card.method === 'vote' ? 'Seu voto pessoal' : 'Sugestão aceita por você'} · {winner.basis}</small>
-              {card.jury && state.phase === 'revealed' && <details className="cer-jury" open><summary>Como o júri votou</summary><ul>{card.jury.judges.map((v, i) => { const judge = judges.find(j => j.id === v.judge); const pick = card.nominees.find(n => n.id === v.ranking[0]); return <li key={v.judge} style={{ animationDelay: `${500 + i * 180}ms` }}><strong><JurorAvatar id={v.judge as never} size={22} /> {judge?.name}</strong><span>{v.abstain ? `Absteve-se: ${v.abstain}` : `1º: ${pick?.name ?? '—'}`}<em>{juryQuote(v, card)}</em></span></li>; })}</ul><small>Placar: {card.nominees.map(n => `${n.name} ${card.jury!.totals[n.id] ?? 0}`).join(' · ')}</small></details>}
+              <small>{card.method === 'jury' ? `Decisão do júri · ${(card.jury?.totals[winner.id] ?? 0).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} pontos` : card.method === 'vote' ? 'Seu voto pessoal' : 'Sugestão aceita por você'} · {winner.basis}</small>
+              {card.jury && state.phase === 'revealed' && <details className="cer-jury" open><summary>Como o júri votou</summary><ul>{card.jury.judges.map((v, i) => { const judge = judges.find(j => j.id === v.judge); const pick = card.nominees.find(n => n.id === v.ranking[0]); return <li key={v.judge} style={{ animationDelay: `${500 + i * 180}ms` }}><strong><JurorAvatar id={v.judge as never} size={22} /> {v.name ?? judge?.name}</strong><span>{v.abstain ? `Absteve-se: ${v.abstain}` : `1º: ${pick?.name ?? '—'}`}{v.criterion && <small>{v.criterion}</small>}<em>{juryQuote(v, card)}</em></span></li>; })}</ul><small>Placar: {card.nominees.map(n => `${n.name} ${(card.jury!.totals[n.id] ?? 0).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}`).join(' · ')}</small></details>}
             </div> : <div className="cer-nominees">
               <span className="cer-label">{state.phase === 'nominees' ? 'Os indicados são' : 'E o prêmio vai para…'}</span>
               <ul>{card.nominees.slice(0, 6).map(n => <li key={n.id}><Cover item={n} /><span className="truncate"><strong>{n.name}</strong><small>{n.artist}</small></span></li>)}</ul>

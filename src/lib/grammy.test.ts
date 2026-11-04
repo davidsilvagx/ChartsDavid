@@ -54,7 +54,7 @@ describe('Cédula pessoal', () => {
   const cat = (id: string) => grammyCategories.find(c => c.id === id)!;
   it('sugere por reproduções nas gerais e exige gênero verificado nas de gênero', () => {
     const tracks = [item('A', 5), item('B', 9), item('C', 1)];
-    const general = suggestNominees(cat('record-of-the-year'), { tracks }, {});
+    const general = suggestNominees(cat('song-of-the-year'), { tracks }, {});
     expect(general.nominees.map(n => n.name)).toEqual(['B', 'A', 'C']);
     expect(general.criterion).toMatch(/não oficial/);
     const noMeta = suggestNominees(cat('best-rnb-song'), { tracks }, {});
@@ -65,7 +65,7 @@ describe('Cédula pessoal', () => {
     expect(withMeta.criterion).toMatch(/créditos/);
   });
   it('não infere Artista Revelação, pessoas ou vídeos', () => {
-    expect(suggestNominees(cat('best-new-artist'), { artists: [item('X', 99, 'artists')] }, {}).insufficient).toMatch(/primeira audição/);
+    expect(suggestNominees(cat('best-new-artist'), { artists: [item('X', 99, 'artists')] }, {}).insufficient).toMatch(/Escolha um ano/);
     expect(suggestNominees(cat('producer-of-the-year-non-classical'), {}, {}).insufficient).toMatch(/créditos/);
     expect(suggestNominees(cat('best-music-video'), {}, {}).insufficient).toMatch(/vídeos/);
   });

@@ -24,7 +24,7 @@ describe('Júri automático', () => {
     expect(vote('steady').ranking[0]).toBe(y.id);
     expect(vote('rise').ranking[0]).toBe(y.id);
     expect(vote('time').abstain).toBeTruthy();
-    expect(vote('style').abstain).toMatch(/geral/);
+    expect(vote('style').abstain).toMatch(/Faltam dados/);
     expect(result.winner).toBe(y.id);
     expect(result.judges).toHaveLength(judges.length);
   });
@@ -47,7 +47,7 @@ describe('Júri automático', () => {
     const { pools, stats } = buildPools(cached, false, undefined, 'all');
     expect(stats.tracks[pools.tracks.find(i => i.name === 'Tarde')!.id]).toMatchObject({ weeksActive: 4, weeksAtOne: 3 });
     const ballot = { ...emptyBallot('p', '2016'), selected: ['record-of-the-year', 'best-new-artist'] };
-    const { ballot: decided, decided: n, skipped } = conveneJury(ballot, pools, {}, stats);
+    const { ballot: decided, decided: n, skipped } = conveneJury(ballot, pools, {}, stats, 1, { mode: 'any', start: weeks[0].start, end: weeks.at(-1)!.end, year: 2016 });
     expect(n).toBe(1);
     expect(skipped[0].categoryId).toBe('best-new-artist');
     expect(decided.mode).toBe('jury');
