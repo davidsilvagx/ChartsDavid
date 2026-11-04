@@ -87,6 +87,7 @@ import { AvatarPickerModal, ProfileAvatar, getAvatarLabel } from './components/A
 import { PlatformsHub, PlatformsModal, SourceFilterBar } from './components/Platforms';
 import { ChartCanvas } from './components/ChartCanvas';
 import { Studio } from './components/Studio';
+import { Spotlight, GramophoneIcon } from './components/Spotlight';
 import './styles.css';
 
 type Page = 'overview' | 'charts' | 'studio' | 'library' | 'settings';
@@ -129,6 +130,7 @@ function App() {
 
   const [year, setYear] = useState('all');
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [spotlightOpen,setSpotlightOpen]=useState(false);
   const [studioPeriod, setStudioPeriod] = useState<PeriodResult | null>(null);
   const [weekId, setWeekId] = useState('');
   const [top, setTop] = useState(100);
@@ -1118,6 +1120,8 @@ function App() {
                 </>
               )}
 
+              {(page==='overview'||page==='charts')&&<section className="spotlight-entry"><div className="spotlight-entry-icon"><GramophoneIcon size={34}/></div><div><span className="eyebrow">SPOTLIGHT</span><h2>Seu gosto merece o palco.</h2><p>Crie sua edição de charts, revele os vencedores e revisite sua história.</p></div><button type="button" className="button" onClick={()=>setSpotlightOpen(true)}><Sparkles size={16}/><span>Charts & premiações</span></button></section>}
+
               {page === 'charts' && (
                 <section className="panel">
                   <div className="panel-heading charts-header">
@@ -1262,6 +1266,7 @@ function App() {
                   busy={computing}
                   username={profile?.realname || (profile?.name && profile.name !== 'Iknowjauregui' ? profile.name : 'David')}
                   kind={kind}
+                  audioNamespace={settings.user}
                   preserveRange={!!studioPeriod || year !== 'all'}
                   onChoosePeriod={() => setHistoryOpen(true)}
                   initialSelected={studioSeed}
@@ -1448,6 +1453,11 @@ function App() {
       )}
 
       {historyOpen && <HistoryExplorer weeks={weeks} charts={charts} initialYear={year} selectedId={selected?.id} startDate={settings.startDate} computing={computing} progress={progress} error={error} onCancel={data.cancel} onSync={scope => void data.sync(scope)} onClose={() => setHistoryOpen(false)} onCalendar={() => {setHistoryOpen(false);navigate('settings');}} initialMode={page==='studio'?'period':'archive'} onChoose={week => {setYear(String(week.year));setWeekId(week.id);setHistoryOpen(false);navigate('charts');}} settings={settings} cached={cached} kind={kind} source={sourceFilter} onAnimate={result => {setStudioPeriod(result);setStudioSeed(undefined);setHistoryOpen(false);if(page!=='studio')navigate('studio');}} />}
+
+      {spotlightOpen&&<Spotlight charts={charts} library={library} owner={profile?.realname||(profile?.name&&profile.name!=='Iknowjauregui'?profile.name:'David')} namespace={settings.user} initialYear={year} dark={dark} kind={kind} timezone={settings.timezone} onClose={()=>setSpotlightOpen(false)} onDownload={value=>{setSpotlightOpen(false);void data.sync(value==='all'?'all':Number(value));}} onStudio={(ids,title,series,items,count)=>{
+        try{const saved=JSON.parse(localStorage.getItem('lastchart-studio:studio')??'{}');localStorage.setItem('lastchart-studio:studio',JSON.stringify({...studioDefaults,...saved,chartName:title,top:count,barCount:Math.min(count,30),mode:count>30?'lines':saved.mode??'lines'}));}catch{/* optional preference */}
+        setStudioPeriod({charts:series,library:items,unit:'week'});setStudioSeed(ids);setSpotlightOpen(false);navigate('studio');
+      }}/>}
 
       {avatarModal && (
         <AvatarPickerModal
