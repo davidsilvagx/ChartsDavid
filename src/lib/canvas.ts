@@ -98,7 +98,7 @@ export function drawChart(ctx: CanvasRenderingContext2D, width: number, height: 
 }
 
 function drawChartFrame(ctx: CanvasRenderingContext2D, width: number, height: number, options: DrawOptions) {
-  const { charts, items, settings: s, title = s.mode === 'bars' ? 'CORRIDA DE REPRODUÇÕES' : 'CHART HISTORY', reduced = false } = options;
+  const { charts, items, settings: s, title = s.chartName?.trim() || (s.mode === 'bars' ? 'CORRIDA DE REPRODUÇÕES' : 'CHART HISTORY'), reduced = false } = options;
   const dark = options.dark ?? (s.canvasTheme !== 'light');
   const position = Math.max(0, Math.min(options.position, Math.max(0, charts.length - 1)));
   const current = Math.floor(position);
@@ -525,7 +525,7 @@ function drawBarRace(
 
   const scored = items.map((item, idx) => {
     const v0 = curMap.get(item.id) ?? 0;
-    const v1 = nextMap.get(item.id) ?? v0;
+    const v1 = charts[current + 1]?.status === 'loaded' ? nextMap.get(item.id) ?? 0 : v0;
     const value = v0 + (v1 - v0) * ease;
     return {
       item,
