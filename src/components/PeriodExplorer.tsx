@@ -9,6 +9,8 @@ import { monthNames } from '../lib/history';
 import { studioDateRange } from '../lib/studio';
 
 export type PeriodResult = ReturnType<typeof buildPeriodCharts>;
+interface SavedEra {id:string;name:string;from:string;to:string;unit:PeriodUnit}
+function readEras(key:string):SavedEra[]{try{const value=JSON.parse(localStorage.getItem(key)??'[]');return Array.isArray(value)?value.filter(v=>v&&typeof v.id==='string'&&typeof v.name==='string'&&typeof v.from==='string'&&typeof v.to==='string'&&typeof v.unit==='string'&&Object.hasOwn(periodLabels,v.unit)).slice(0,8):[];}catch{return [];}}
 export function PeriodExplorer({settings,cached,kind,source,disabled,onAnimate,onDownload,initialYear='all'}: {
   settings:Settings;cached:CachedWeek[];kind:Kind;source:SourceFilter;disabled:boolean;
   onAnimate:(result:PeriodResult)=>void;onDownload:()=>void;
@@ -27,6 +29,11 @@ export function PeriodExplorer({settings,cached,kind,source,disabled,onAnimate,o
   const [index,setIndex]=useState(0);
   const [loading,setLoading]=useState(false);
   const [error,setError]=useState('');
+  const eraKey=`saved-eras:v1:${settings.user.toLowerCase()}`;
+  const [eras,setEras]=useState<SavedEra[]>(()=>readEras(eraKey)),[eraName,setEraName]=useState(''),[eraError,setEraError]=useState('');
+  useEffect(()=>{setEras(readEras(eraKey));},[eraKey]);
+  const storeEras=(next:SavedEra[])=>{try{localStorage.setItem(eraKey,JSON.stringify(next));setEras(next);setEraError('');}catch{setEraError('Não foi possível salvar esta época no aparelho.');}};
+  const saveEra=()=>{try{const a=parseDateBR(from),b=parseDateBR(to);if(a>b||b>today||a<settings.startDate)throw new Error('Confira as datas antes de salvar.');storeEras([{id:crypto.randomUUID(),name:eraName.trim()||`${from} a ${to}`,from,to,unit},...eras].slice(0,8));setEraName('');}catch(e){setEraError(e instanceof Error?e.message:'Confira as datas.');}};
   const worker=useRef<Worker|null>(null);
   const reset = () => { worker.current?.terminate();worker.current=null;setLoading(false);setResult(null);setError(''); };
   useEffect(()=>{reset();return()=>worker.current?.terminate();},[settings.user,settings.startDate,settings.timezone,settings.deduplicate,settings.aliases,kind,source,cached]);
@@ -53,6 +60,7 @@ export function PeriodExplorer({settings,cached,kind,source,disabled,onAnimate,o
   return <section className="period-explorer">
     <h3>Datas e evolução do vídeo</h3><p>Primeiro escolha as datas incluídas. Depois defina se cada quadro mostra um dia, semana, mês ou ano. Fuso: {settings.timezone}.</p>
     <details className="period-help"><summary>Como criar o vídeo de uma época?</summary><p>Para agosto de 2026, escolha “Um mês”, 2026 e Agosto. Gere os charts e toque em “Animar” para usar essas datas no estúdio; lá você escolhe Linhas ou Barras e o Top. Para uma semana específica, informe qualquer dia dela: o intervalo de sexta a quinta é preenchido automaticamente.</p></details>
+    <details className="period-help saved-eras"><summary>Épocas salvas · {eras.length}</summary><p>Guarde até oito intervalos neste aparelho, separados por perfil.</p><label>Nome da época<input aria-label="Nome da época salva" value={eraName} maxLength={48} placeholder="Minha era favorita" onChange={e=>setEraName(e.target.value)}/></label><button type="button" className="button small" onClick={saveEra}>Salvar datas atuais</button>{eraError&&<p className="alert error" role="alert">{eraError}</p>}<div className="saved-era-list">{eras.map(era=><div key={era.id}><button type="button" className="text-button" onClick={()=>{reset();setRangeType('custom');setFrom(era.from);setTo(era.to);setUnit(era.unit);}}><strong>{era.name}</strong><small>{era.from} — {era.to} · {periodLabels[era.unit]}</small></button><button type="button" className="icon-button" aria-label={`Remover época ${era.name}`} onClick={()=>storeEras(eras.filter(value=>value.id!==era.id))}>×</button></div>)}</div></details>
     <div className="history-filters">
       <label>Intervalo do vídeo<select aria-label="Intervalo do vídeo" value={rangeType} onChange={e=>applyRange(e.target.value as typeof rangeType)}><option value="year">Ano completo</option><option value="month">Um mês</option><option value="week">Uma semana</option><option value="custom">Datas personalizadas</option><option value="all">Todo o histórico</option></select></label>
       {(rangeType==='year'||rangeType==='month')&&<label>Ano<select aria-label="Ano do vídeo" value={rangeYear} onChange={e=>applyRange(rangeType,e.target.value)}>{Array.from({length:Number(today.slice(0,4))-Number(settings.startDate.slice(0,4))+1},(_,i)=>String(Number(today.slice(0,4))-i)).map(y=><option key={y} value={y}>{y}</option>)}</select></label>}
