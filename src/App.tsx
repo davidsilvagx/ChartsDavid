@@ -76,6 +76,7 @@ import {
   Empty,
   MiniPlayer,
   Modal,
+  ModalArtworkContext,
   MusicLoader,
   Sparkline,
   SyncProgressCard,
@@ -87,6 +88,7 @@ import { AvatarPickerModal, ProfileAvatar, getAvatarLabel } from './components/A
 import { PlatformsHub, PlatformsModal, SourceFilterBar } from './components/Platforms';
 import { ChartCanvas } from './components/ChartCanvas';
 import { Studio } from './components/Studio';
+import { Spotlight, GramophoneIcon } from './components/Spotlight';
 import './styles.css';
 
 type Page = 'overview' | 'charts' | 'studio' | 'library' | 'settings';
@@ -129,6 +131,7 @@ function App() {
 
   const [year, setYear] = useState('all');
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [spotlightOpen,setSpotlightOpen]=useState(false);
   const [studioPeriod, setStudioPeriod] = useState<PeriodResult | null>(null);
   const [weekId, setWeekId] = useState('');
   const [top, setTop] = useState(100);
@@ -458,7 +461,7 @@ function App() {
   const legendPalette = palettes.neon;
 
   return (
-    <div className="app-shell">
+    <ModalArtworkContext.Provider value={heroArtwork}><div className="app-shell">
       <a href="#main" className="skip-link">
         Pular para o conteúdo
       </a>
@@ -489,6 +492,7 @@ function App() {
               {id === 'studio' && <span className="tiny-badge">60FPS</span>}
             </button>
           ))}
+          <button type="button" className={`nav-link ${spotlightOpen?'active':''}`} aria-haspopup="dialog" aria-expanded={spotlightOpen} onClick={()=>setSpotlightOpen(true)}><GramophoneIcon size={19}/><span>Charts & prêmios</span></button>
         </nav>
 
         <div className="sidebar-bottom">
@@ -518,6 +522,7 @@ function App() {
       </aside>
 
       <div className="workspace">
+        <AmbientBackdrop src={heroArtwork} className="page-artwork" />
         <header className="topbar">
           <div className="breadcrumb">
             <span>LastChart Studio</span>
@@ -563,8 +568,8 @@ function App() {
         </header>
 
         <main id="main">
-          <AmbientBackdrop src={leader?.image} className="page-artwork" />
           {page==='overview'&&!installed&&<section className="install-banner" aria-label="Instalar LastChart no celular"><Smartphone size={24}/><div><strong>Seu LastChart na tela inicial</strong><small>Instale pelo navegador e abra como aplicativo.</small></div><button type="button" className="button primary" onClick={()=>void install()} disabled={installing}>{installing?<MusicLoader size="sm" tone="ink"/>:<Download size={16}/>}<span>{installing?'Abrindo instalação…':'Instalar no celular'}</span></button></section>}
+              {(page==='overview'||page==='charts')&&<section className="spotlight-entry"><div className="spotlight-entry-icon"><GramophoneIcon size={34}/></div><div><span className="eyebrow">SPOTLIGHT</span><h2>Seu gosto merece o palco.</h2><p>Crie sua edição de charts, revele os vencedores e revisite sua história.</p></div><button type="button" className="button" onClick={()=>setSpotlightOpen(true)}><Sparkles size={16}/><span>Charts & premiações</span></button></section>}
           {!online && (
             <div className="alert">
               <WifiOff size={18} />
@@ -1118,6 +1123,7 @@ function App() {
                 </>
               )}
 
+
               {page === 'charts' && (
                 <section className="panel">
                   <div className="panel-heading charts-header">
@@ -1262,6 +1268,8 @@ function App() {
                   busy={computing}
                   username={profile?.realname || (profile?.name && profile.name !== 'Iknowjauregui' ? profile.name : 'David')}
                   kind={kind}
+                  audioNamespace={settings.user}
+                  onSoundStart={closePreview}
                   preserveRange={!!studioPeriod || year !== 'all'}
                   onChoosePeriod={() => setHistoryOpen(true)}
                   initialSelected={studioSeed}
@@ -1449,6 +1457,11 @@ function App() {
 
       {historyOpen && <HistoryExplorer weeks={weeks} charts={charts} initialYear={year} selectedId={selected?.id} startDate={settings.startDate} computing={computing} progress={progress} error={error} onCancel={data.cancel} onSync={scope => void data.sync(scope)} onClose={() => setHistoryOpen(false)} onCalendar={() => {setHistoryOpen(false);navigate('settings');}} initialMode={page==='studio'?'period':'archive'} onChoose={week => {setYear(String(week.year));setWeekId(week.id);setHistoryOpen(false);navigate('charts');}} settings={settings} cached={cached} kind={kind} source={sourceFilter} onAnimate={result => {setStudioPeriod(result);setStudioSeed(undefined);setHistoryOpen(false);if(page!=='studio')navigate('studio');}} />}
 
+      {spotlightOpen&&<Spotlight charts={charts} library={library} owner={profile?.realname||(profile?.name&&profile.name!=='Iknowjauregui'?profile.name:'David')} namespace={settings.user} initialYear={year} dark={dark} kind={kind} timezone={settings.timezone} onClose={()=>setSpotlightOpen(false)} onDownload={value=>{setSpotlightOpen(false);void data.sync(value==='all'?'all':Number(value));}} onStudio={(ids,title,series,items,count)=>{
+        try{const saved=JSON.parse(localStorage.getItem('lastchart-studio:studio')??'{}');localStorage.setItem('lastchart-studio:studio',JSON.stringify({...studioDefaults,...saved,chartName:title,top:count,barCount:Math.min(count,30),mode:count>30?'lines':saved.mode??'lines'}));}catch{/* optional preference */}
+        setStudioPeriod({charts:series,library:items,unit:'week'});setStudioSeed(ids);setSpotlightOpen(false);navigate('studio');
+      }}/>}
+
       {avatarModal && (
         <AvatarPickerModal
           username={profile?.name ?? settings.user}
@@ -1508,7 +1521,7 @@ function App() {
           </div>
         </Modal>
       )}
-    </div>
+    </div></ModalArtworkContext.Provider>
   );
 }
 

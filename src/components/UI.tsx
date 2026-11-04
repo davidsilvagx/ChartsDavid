@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { ArrowDown, ArrowUp, Disc3, ExternalLink, Minus, Pause, Play, Square, Volume2, X } from 'lucide-react';
 import type { ChartEntry, Item, SyncProgress } from '../lib/types';
 import { peekCatalogMedia, resolveCatalogMedia } from '../lib/catalog';
@@ -230,6 +230,8 @@ export function Change({ value, hiatusWeeks }: { value: ChartEntry['change']; hi
   );
 }
 
+export const ModalArtworkContext = createContext('');
+
 export function Modal({
   title,
   subtitle,
@@ -238,6 +240,7 @@ export function Modal({
   wide = false,
   ambientImage,
   ambientActive = false,
+  className = '',
 }: {
   title: string;
   subtitle?: string;
@@ -246,7 +249,10 @@ export function Modal({
   wide?: boolean;
   ambientImage?: string;
   ambientActive?: boolean;
+  className?: string;
 }) {
+  const fallbackArtwork = useContext(ModalArtworkContext);
+  const modalImage = ambientImage ?? fallbackArtwork;
   const dialogRef = useRef<HTMLDialogElement>(null);
   const titleId = useId();
   const closingRef = useRef(false);
@@ -289,7 +295,7 @@ export function Modal({
     <dialog
       ref={dialogRef}
       {...({ closedby: 'any' } as Record<string, string>)}
-      className={`modal ${wide ? 'wide' : ''} ${ambientImage ? 'has-ambient' : ''}`}
+      className={`modal ${wide ? 'wide' : ''} ${modalImage ? 'has-ambient' : ''} ${className}`}
       aria-labelledby={titleId}
       onCancel={e => {
         e.preventDefault();
@@ -306,8 +312,9 @@ export function Modal({
       }}
     >
       <div className="modal-shell">
-        {ambientImage && <AmbientBackdrop src={ambientImage} active={ambientActive} className="modal-ambient" />}
+        {modalImage && <AmbientBackdrop src={modalImage} active={ambientActive} className="modal-ambient" />}
         <header>
+          {modalImage&&<div className="modal-header-art" aria-hidden="true"><img src={modalImage} alt=""/><span/></div>}
           <div>
             <h2 id={titleId}>{title}</h2>
             {subtitle && <p>{subtitle}</p>}
