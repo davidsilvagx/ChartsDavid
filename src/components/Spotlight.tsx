@@ -47,10 +47,10 @@ export function Spotlight({charts,library,cached,settings,source,owner,namespace
     const worker=new Worker(new URL('../workers/pools.worker.ts',import.meta.url),{type:'module'});
     worker.onmessage=({data})=>{if(!active)return;if(data.error)setPoolError(data.error);else{setPools(data.pools);setStats(data.stats??{});}worker.terminate();};
     worker.onerror=()=>{if(active)setPoolError('Não foi possível reunir os indicados deste período.');worker.terminate();};
-    worker.postMessage({cached:cached.filter(week=>year==='all'||week.week.year===Number(year)),deduplicate:settings.deduplicate,aliases:settings.aliases,source});
+    worker.postMessage({cached,year:year==='all'?null:Number(year),calendar:charts.map(({id,number,start,end,label,year,partial})=>({id,number,start,end,label,year,partial})),deduplicate:settings.deduplicate,aliases:settings.aliases,source});
     void reloadMeta();
     return()=>{active=false;worker.terminate();};
-  },[tab,cached,year,settings.deduplicate,settings.aliases,source]);
+  },[tab,cached,charts,year,settings.deduplicate,settings.aliases,source]);
   const title=name.trim()||`${owner} · Hot 100`,record=data?.awards[category];
   const backdrop=useArtworkUrl(data?.ranking[0]);
   const date=(seconds:number)=>new Intl.DateTimeFormat('pt-BR',{timeZone:timezone,day:'2-digit',month:'2-digit',year:'2-digit'}).format(new Date(seconds*1000));
@@ -77,7 +77,7 @@ export function Spotlight({charts,library,cached,settings,source,owner,namespace
       {error&&<p className="alert error" role="alert">{error}</p>}
       {tab==='profile'?<MusicProfile cached={cached} settings={settings} source={source} library={library} owner={owner} dark={dark}/>:
       tab==='compare'?<Compare settings={settings} cached={cached} owner={settings.user} year={year} source={source} dark={dark}/>:
-      tab==='awards'?<Awards profile={namespace} period={year} periodLabel={`${range} · ${coverage}`} title={title} pools={pools} stats={stats} meta={meta} window={year==='all'?null:data?.first?{start:data.first.start,end:Math.min(data.last!.end,Date.now()/1000),year:Number(year)}:null} apiKey={settings.apiKey} onMetaRefresh={reloadMeta} loading={!pools&&!poolError} error={poolError} reduced={reduced} onExport={shareAward}/>:
+      tab==='awards'?<>{year==='all'&&<p className="note annual-awards-hint">Para os prêmios anuais, escolha um ano em Época. <button type="button" className="text-button" onClick={()=>setYear(String(years[0]))}>Usar {years[0]}</button></p>}<Awards profile={namespace} period={year} periodLabel={`${range} · ${coverage}`} title={title} pools={pools} stats={stats} meta={meta} window={year==='all'?null:data?.first?{start:data.first.start,end:Math.min(data.last!.end,Date.now()/1000),year:Number(year)}:null} apiKey={settings.apiKey} onMetaRefresh={reloadMeta} loading={!pools&&!poolError} error={poolError} reduced={reduced} onExport={shareAward}/></>:
       loading?<div className="spotlight-loading" role="status"><MusicLoader size="md"/><span>Preparando sua edição com dados reais…</span></div>:!data?.ranking.length?<Empty title="Esta edição ainda não tem dados" description={data?.missing?'Há semanas que ainda precisam ser baixadas. Isso não significa ausência de reproduções.':'Nenhuma reprodução encontrada nas semanas deste período e na fonte selecionada.'} action={<button type="button" className="button" onClick={()=>onDownload(year)}>Sincronizar este período</button>}/>:<>
         {(data.missing>0||data.partial)&&<p className="note">{data.missing?`${data.missing} semanas não baixadas. Resultados parciais; lacunas não viram zero.`:'Inclui o período atual ou dados parciais. Os resultados podem mudar após sincronizar.'}</p>}
         {tab==='chart'&&<>
