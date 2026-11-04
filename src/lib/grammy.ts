@@ -24,6 +24,7 @@ export interface GrammyCategory {
   needs: Array<'credits' | 'lineup' | 'subgenre' | 'eligibility' | 'technical' | 'visual'>;
   /** Mudança da edição 2027 em relação à anterior. */
   change?: 'new' | 'renamed';
+  personal?: boolean;
 }
 
 export const grammyAreas: Record<GrammyArea, { official: string; label: string }> = {
@@ -174,6 +175,11 @@ export const grammyCategories: GrammyCategory[] = rows.flatMap(([area, list]) =>
   id, number: ++counter, area, official, label, subject, ...(genre ? { genre } : {}), needs: needs ?? [], ...(change ? { change } : {}),
 })));
 export const grammyById = new Map(grammyCategories.map(category => [category.id, category]));
+/** Extra personal category; the official Grammy catalogue remains exactly 100 entries. */
+export const ARTIST_OF_YEAR = 'lastchart-artist-of-the-year';
+export const personalCategories: GrammyCategory[] = [{ id: ARTIST_OF_YEAR, number: 101, area: 'general', official: 'LastChart Artist Of The Year', label: 'Artista do Ano', subject: 'artist', needs: [], personal: true }];
+export const awardCategories = [...grammyCategories, ...personalCategories];
+export const awardById = new Map(awardCategories.map(category => [category.id, category]));
 
 export const subjectLabels: Record<GrammySubject, string> = {
   recording: 'Gravação/performance', album: 'Álbum', song: 'Composição (canção)', artist: 'Artista', person: 'Pessoa (créditos)', visual: 'Vídeo ou filme',
@@ -190,9 +196,9 @@ export const needLabels: Record<GrammyCategory['needs'][number], string> = {
 /** Normaliza nomes para busca sem acentos. */
 export const foldText = (value: string) => value.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 
-export function searchCategories(query: string, area: GrammyArea | 'all' = 'all', favorites?: Set<string>) {
+export function searchCategories(query: string, area: GrammyArea | 'all' = 'all', favorites?: Set<string>, withPersonal = false) {
   const q = foldText(query.trim());
-  return grammyCategories.filter(category => (area === 'all' || category.area === area) && (!favorites || favorites.has(category.id)) &&
+  return (withPersonal ? awardCategories : grammyCategories).filter(category => (area === 'all' || category.area === area) && (!favorites || favorites.has(category.id)) &&
     (!q || foldText(`${category.label} ${category.official}`).includes(q)));
 }
 
