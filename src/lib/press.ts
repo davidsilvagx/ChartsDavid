@@ -14,6 +14,8 @@ export function juryQuote(vote: JudgeVote, card: RevealCard): string {
   const winner = card.winners[0], name = (id: string) => card.nominees.find(x => x.id === id)?.name ?? '—';
   if (vote.abstain) return pick(['“Prefiro não opinar sem números completos.”', '“Sem dados para todos, eu me abstenho.”', '“Fico de fora desta: faltou informação.”'], hash(vote.judge + card.category.id));
   const mine = vote.ranking[0], score = vote.scores[winner.id], top = vote.scores[mine], agrees = mine === winner.id;
+  if (card.jury?.algorithm === 'artist-year') return `“${name(mine)} liderou meu critério: ${n(top)} pontos ponderados. ${vote.criterion ?? ''}”`;
+  if (card.category.id === 'record-of-the-year' && vote.judge === 'style') return `“${name(mine)} representa um artista com ${n(top)} reproduções no seu ano. Afinidade também conta.”`;
   const lines: Record<string, (v: number) => string[]> = {
     volume: v => [`“${n(v)} reproduções. Não tem como discutir com a plateia.”`, `“O público votou com o play: ${n(v)} vezes.”`],
     time: v => [`“${n(v / 3600000)} horas de escuta estimada. Isso é devoção.”`, `“Medi o tempo: ${n(v / 60000)} minutos de pura entrega.”`],
