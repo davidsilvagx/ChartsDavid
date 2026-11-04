@@ -17,16 +17,18 @@ describe('Elegibilidade realista', () => {
     expect(careerFrom([{ collectionName: 'Debut - Single', releaseDate: '2023-03-01', trackCount: 1 }, { collectionName: 'Primeiro', releaseDate: '2024-05-01', trackCount: 11 }, { collectionName: 'EP - EP', releaseDate: '2023-09-01', trackCount: 5 }])).toEqual({ firstRelease: '2023-03-01', albumCount: 1 });
     expect(careerFrom([])).toBeNull();
   });
-  it('Artista Revelação: carreira longa (ex.: estreia em 2008, 7 álbuns) não entra; estreia recente entra', () => {
+  it('carreira de catálogo permanece disponível, mas não define a revelação pessoal', () => {
     const veteran = item('artists', 'Lady Gaga', 'Lady Gaga', 900), rookie = item('artists', 'Nova Voz', 'Nova Voz', 120), unknown = item('artists', 'Sem Dados', 'Sem Dados', 50);
     const artists = new Map([meta('artists', veteran, { firstRelease: '2008-04-08', albumCount: 7 }), meta('artists', rookie, { firstRelease: '2024-06-01', albumCount: 1 })]);
     expect(newArtistCheck(artists.get(metaKey('artists', veteran)), rules2026).ok).toBe(false);
     expect(newArtistCheck(artists.get(metaKey('artists', rookie)), rules2026).ok).toBe(true);
     expect(newArtistCheck(undefined, rules2026).ok).toBeNull();
-    const s = suggestNominees(grammyById.get('best-new-artist')!, { artists: [veteran, rookie, unknown] }, { artists }, 5, rules2026);
-    expect(s.nominees.map(n => n.name)).toEqual(['Nova Voz']);
+    const row = { plays: 100, weeksActive: 1, weeksAtOne: 0, weeksTop10: 0, firstHalf: 50, secondHalf: 50 };
+    const stats = { artists: { [veteran.id]: { ...row, chartDebut: { week: '02/01/26 — 08/01/26', year: 2026, start: rules2026.start, missingBefore: 0, provisional: false } }, [rookie.id]: { ...row, chartDebut: { week: '05/01/24 — 11/01/24', year: 2024, start: 1, missingBefore: 0, provisional: false } } } };
+    const s = suggestNominees(grammyById.get('best-new-artist')!, { artists: [veteran, rookie, unknown] }, { artists }, 5, rules2026, stats);
+    expect(s.nominees.map(n => n.name)).toEqual(['Lady Gaga']);
     expect(s.unknown).toBe(1);
-    expect(s.nominees[0].basis).toMatch(/2024/);
+    expect(s.nominees[0].basis).toMatch(/seu Top 100.*26/);
   });
   it('Álbum do Ano só com lançamentos da janela; sem data fica de fora; “qualquer lançamento” libera', () => {
     const old = item('albums', 'Antigo', 'A', 500), fresh = item('albums', 'Novo', 'B', 100), edge = item('albums', 'Setembro', 'C', 90), nodate = item('albums', 'Sem Data', 'D', 80);
