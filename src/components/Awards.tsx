@@ -3,7 +3,8 @@ import { Check, ChevronDown, Download, Gavel, Info, ListChecks, Lock, Plus, Sear
 import { GRAMMY_EDITION, grammyAreas, grammyById, grammyCategories, needLabels, searchCategories, subjectLabels, type GrammyArea } from '../lib/grammy';
 import { ballotKey, categoryOrder, ceremonyReadiness, conveneJury, type Eligibility, emptyBallot, freezeCeremony, manualNominee, nomineeFromItem, sanitizeBallot, subjectKind, suggestNominees, type Ballot, type BallotEntry, type RevealCard } from '../lib/ballot';
 import { judges, runJury, type ItemStats } from '../lib/jury';
-import { enrichItems, metaKey, type EffectiveMeta } from '../lib/metadata';
+import { enrichItems, mergeCareer, metaKey, type EffectiveMeta } from '../lib/metadata';
+import { fetchCareer, grammyYears } from '../lib/career';
 import type { Item, Kind } from '../lib/types';
 import { Cover, MusicLoader, number } from './UI';
 import { GramophoneIcon } from './Gramophone';
@@ -43,8 +44,8 @@ export function Awards({ profile, period, periodLabel, title, pools, stats, meta
   const verifyAbort = useRef<AbortController | null>(null);
   useEffect(() => () => verifyAbort.current?.abort(), []);
   const missing = (kind: Kind, n: number, need: (m?: EffectiveMeta) => boolean) => (pools?.[kind] ?? []).slice(0, n).filter(item => { const m = meta[kind]?.get(metaKey(kind, item)); return m?.status !== 'not-found' && need(m); });
-  const toVerify = pools ? { tracks: missing('tracks', 25, m => !m?.releaseDate), albums: missing('albums', 15, m => !m?.releaseDate), artists: missing('artists', 20, m => !m?.firstRelease) } : null;
-  const verifyCount = toVerify ? toVerify.tracks.length + toVerify.albums.length + toVerify.artists.length : 0;
+  const toVerify = pools ? { tracks: missing('tracks', 25, m => !m?.releaseDate), albums: missing('albums', 15, m => !m?.releaseDate), artists: missing('artists', 20, m => !m?.firstRelease), career: missing('artists', 20, m => !m?.careerSource) } : null;
+  const verifyCount = toVerify ? toVerify.tracks.length + toVerify.albums.length + toVerify.artists.length + toVerify.career.length : 0;
   useEffect(() => { if (pendingConvene && !verify) { setPendingConvene(false); convene(); } }, [pendingConvene, verify, meta]);
   const conveneSmart = () => { if (verifyCount > 0 && navigator.onLine) { setPendingConvene(true); void runVerify(); } else convene(); };
   const runVerify = async () => {
@@ -57,6 +58,15 @@ export function Awards({ profile, period, periodLabel, title, pools, stats, meta
         await enrichItems(kind, items, { signal: abort.signal, refresh: true, apiKey, onProgress: p => setVerify({ done: base + p.done, total: verifyCount, current: p.current }) });
         base += items.length;
         await onMetaRefresh();
+      }
+      // Carreira e Grammys oficiais (MusicBrainz + Wikidata): quem já concorreu não é “revelação”.
+      for (const item of toVerify.career) {
+        abort.signal.throwIfAborted();
+        setVerify({ done: base, total: verifyCount, current: `${item.name} · carreira e Grammys` });
+        const info = await fetchCareer(item).catch(() => null);
+        if (info?.status === 'matched') await mergeCareer(metaKey('artists', item), { mbFirstRelease: info.career?.firstRelease || undefined, grammyYears: grammyYears(info), careerSource: 'MusicBrainz + Wikidata' });
+        else if (info?.status === 'not-found' || info?.status === 'ambiguous') await mergeCareer(metaKey('artists', item), { careerSource: info.status === 'ambiguous' ? 'ambíguo' : 'não encontrado' });
+        base++;
       }
     } catch { /* cancelado: o que já foi consultado fica salvo */ } finally { await onMetaRefresh(); setVerify(null); }
   };

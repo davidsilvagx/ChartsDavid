@@ -29,6 +29,50 @@ export function upstashStore(url, token) {
   };
 }
 
+/**
+ * Vercel Blob (privado), nativo da conta Vercel do projeto. Revisão atômica com ETag (ifMatch):
+ * dois aparelhos salvando ao mesmo tempo não se sobrescrevem; um recebe conflito.
+ */
+export function vercelBlobStore(token, sdk) {
+  const base = id => `sync/${id}`;
+  const readJson = async path => {
+    const result = await sdk.get(path, { access: 'private', token, useCache: false }).catch(error => { if (/not.?found|404/i.test(String(error?.message ?? error))) return null; throw error; });
+    if (!result || result.statusCode !== 200) return null;
+    return { value: JSON.parse(await new Response(result.stream).text()), etag: result.blob.etag };
+  };
+  const writeJson = (path, value, etag) => sdk.put(path, JSON.stringify(value), { access: 'private', token, contentType: 'application/json', cacheControlMaxAge: 60, addRandomSuffix: false, ...(etag ? { ifMatch: etag } : { allowOverwrite: false }) });
+  const conflict = error => /precondition|already exists|412|409/i.test(`${error?.name ?? ''} ${error?.message ?? ''}`);
+  return {
+    async read(id) { const hit = await readJson(`${base(id)}/project.json`); return hit ? hit.value : null; },
+    async write(id, baseRevision, payload, device) {
+      const hit = await readJson(`${base(id)}/project.json`);
+      const current = hit?.value.revision ?? 0;
+      if (current !== baseRevision) return { ok: false, revision: current };
+      const value = { revision: baseRevision + 1, updatedAt: Date.now(), device, payload };
+      try { await writeJson(`${base(id)}/project.json`, value, hit?.etag); }
+      catch (error) { if (conflict(error)) return { ok: false, revision: (await readJson(`${base(id)}/project.json`))?.value.revision ?? current + 1 }; throw error; }
+      return { ok: true, revision: value.revision, updatedAt: value.updatedAt };
+    },
+    async usage(id) { return (await readJson(`${base(id)}/usage.json`))?.value.bytes ?? 0; },
+    async putBlob(id, name, base64, bytes) {
+      await sdk.put(`${base(id)}/blob/${name}`, Buffer.from(base64, 'base64'), { access: 'private', token, contentType: 'application/octet-stream', addRandomSuffix: false, allowOverwrite: false }).catch(error => { if (!conflict(error)) throw error; });
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const hit = await readJson(`${base(id)}/usage.json`);
+        try { await writeJson(`${base(id)}/usage.json`, { bytes: (hit?.value.bytes ?? 0) + bytes }, hit?.etag); return; } catch (error) { if (!conflict(error)) throw error; }
+      }
+    },
+    async hasBlob(id, name) { try { await sdk.head(`${base(id)}/blob/${name}`, { token }); return true; } catch { return false; } },
+    async getBlob(id, name) {
+      const result = await sdk.get(`${base(id)}/blob/${name}`, { access: 'private', token }).catch(() => null);
+      return result?.statusCode === 200 ? Buffer.from(await new Response(result.stream).arrayBuffer()).toString('base64') : null;
+    },
+    async remove(id) {
+      let cursor;
+      do { const page = await sdk.list({ prefix: `${base(id)}/`, token, cursor }); if (page.blobs.length) await sdk.del(page.blobs.map(b => b.url), { token }); cursor = page.hasMore ? page.cursor : undefined; } while (cursor);
+    },
+  };
+}
+
 /** Armazenamento em memória para testes e para o servidor local de desenvolvimento. */
 export function memoryStore() {
   const projects = new Map(), blobs = new Map(), bytes = new Map();
@@ -43,7 +87,8 @@ export function memoryStore() {
   };
 }
 
-export function storeFromEnv(env) {
+export async function storeFromEnv(env) {
+  if (env.BLOB_READ_WRITE_TOKEN) return vercelBlobStore(env.BLOB_READ_WRITE_TOKEN, await import('@vercel/blob'));
   const url = env.KV_REST_API_URL || env.UPSTASH_REDIS_REST_URL, token = env.KV_REST_API_TOKEN || env.UPSTASH_REDIS_REST_TOKEN;
   return url && token ? upstashStore(url, token) : null;
 }

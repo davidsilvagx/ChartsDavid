@@ -57,7 +57,7 @@ export function DeviceSync({ timezone, onError, onNotice }: { timezone: string; 
     return { restored, missing };
   };
 
-  const push = async (force?: { base: number; project: ProjectFile }) => {
+  const push = async (force?: { base: number; project: ProjectFile }, retried = false) => {
     if (!state) return;
     controller.current?.abort(); const abort = new AbortController(); controller.current = abort;
     setBusy('Cifrando e enviando o projeto…'); setUnavailable('');
@@ -67,6 +67,8 @@ export function DeviceSync({ timezone, onError, onNotice }: { timezone: string; 
       let base = force?.base ?? state.revision;
       if (!force) {
         const remote = await fetchRemote(acc, abort.signal);
+        // Nuvem vazia (apagada ou servidor novo): começa da revisão 0, sem conflito fantasma.
+        if (!remote) base = 0;
         if (remote && remote.revision !== state.revision) {
           const decrypted = await decryptProject(acc, remote.payload);
           const changes = diffProjects(local, decrypted).length;
@@ -81,7 +83,7 @@ export function DeviceSync({ timezone, onError, onNotice }: { timezone: string; 
       onNotice(`Projeto salvo na nuvem (revisão ${saved.revision}).`);
       void refreshInfo(acc);
     } catch (e) {
-      if (e instanceof SyncError && e.code === 'conflict') { setBusy(''); await push(); return; }
+      if (e instanceof SyncError && e.code === 'conflict' && !retried) { setBusy(''); await push(undefined, true); return; }
       handle(e);
     } finally { setBusy(''); setProgress(null); }
   };

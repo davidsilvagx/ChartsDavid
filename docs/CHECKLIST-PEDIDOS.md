@@ -48,9 +48,17 @@ Registro único de todos os pedidos, do primeiro ao último, para nada ser esque
 - [x] Comparação de até 5 perfis: duelo, matriz de afinidade, dupla mais parecida, parada do grupo, o que todos ouvem e quem ouviu primeiro
 - [x] TypeScript, 155 testes e build; testes no Opera em celular (retrato/paisagem), tablet, computador e temas claro/escuro
 
+## 5 · Entrega 3 · “avançar com tudo que falta”
+
+- [x] Armazenamento de sincronização em produção: **Vercel Blob privado** `charts-david-sync` (região gru1, São Paulo) criado na conta do David e conectado ao projeto; revisão atômica por ETag; testado com dois contextos contra o Blob real (projeto + 2 trechos de áudio, só bytes cifrados na nuvem)
+- [x] Notificações com o app fechado: Web Push (VAPID) + Cron diário do Vercel (`/api/push-cron`, 19h de Brasília) consultando o Last.fm de cada assinante; novo #1 da semana e recorde semanal; assinatura salva no Blob; remoção automática de assinaturas expiradas
+- [x] Carreira e Grammys oficiais: MusicBrainz (estreia, álbuns de estúdio) e Wikidata (vitórias e indicações); seção na tela do artista/álbum/música; escolha entre homônimos; Artista Revelação exclui quem já concorreu
+- [x] Trilha automática testada com uma música real (MP3 de 3:19 com etiquetas ID3): associação automática, decodificação parcial e áudio presente no vídeo exportado
+- [x] Variáveis no Vercel: `BLOB_READ_WRITE_TOKEN`, `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `CRON_SECRET` (produção, preview e desenvolvimento)
+- [x] Dependências do servidor sem vulnerabilidades (`npm audit --omit=dev`)
+
 ## Limites conhecidos
 
-- Sincronização remota em produção depende de criar o Upstash (Vercel Marketplace) na conta do David.
-- Elegibilidade e carreira vêm do catálogo iTunes (estimativa); prêmios oficiais do Grammy não são exibidos por falta de fonte verificada integrada.
+- Carreira e Grammys vêm de bases públicas e colaborativas (MusicBrainz/Wikidata), que podem estar incompletas; a elegibilidade continua sendo uma estimativa, não a regra oficial.
 - Áudio automático usa arquivos do próprio usuário; prévias de catálogo não são sincronizadas com vídeo (regra da Apple).
-- Notificações só com o app aberto; sem teste em aparelho físico.
+- Push com o app fechado: 1 verificação por dia (limite do Vercel Hobby). Testado até o serviço de push do Google aceitar a mensagem (HTTP 201); o Opera de computador não a exibiu e o serviço invalidou a assinatura (removida pelo servidor). A exibição no aparelho ainda precisa ser confirmada no celular Android (Chrome/Opera) ou no PWA do iPhone.
