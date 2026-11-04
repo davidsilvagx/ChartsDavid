@@ -1,4 +1,4 @@
-import { grammyById } from './grammy';
+import { awardById } from './grammy';
 import { normalize } from './charts';
 import { sanitizeBallot } from './ballot';
 import type { Item } from './types';
@@ -18,7 +18,7 @@ export function personalAwards(item: Pick<Item, 'id' | 'name' | 'artist'>, profi
     const period = key.slice(prefix.length).split(':').slice(1).join(':') || 'all';
     let ballot; try { ballot = sanitizeBallot(JSON.parse(storage.getItem(key) ?? 'null'), profile, period); } catch { continue; }
     for (const entry of Object.values(ballot.entries)) {
-      const category = grammyById.get(entry.categoryId); if (!category) continue;
+      const category = awardById.get(entry.categoryId); if (!category) continue;
       for (const n of entry.nominees) {
         const own = n.id === item.id, byArtist = isArtist && n.kind !== 'artists' && normalize(n.artist) === normalize(item.artist);
         if (!own && !byArtist) continue;
