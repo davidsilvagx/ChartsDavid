@@ -115,6 +115,7 @@ export interface SyncProgress {
 
 export interface StudioSettings {
   leaderAudio?: boolean;
+  leaderAudioMode?: 'manual' | 'auto' | 'auto-manual';
   leaderVolume?: number;
   chartName?: string;
   previewFps?: 30 | 60;

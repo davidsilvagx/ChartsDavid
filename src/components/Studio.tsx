@@ -28,7 +28,7 @@ import { studioDefaults, type ChartWeek, type Item, type Kind, type StudioSettin
 import { trimTimeline } from '../lib/charts';
 import { cacheImageUrl, drawChart, palettes, prepareImages } from '../lib/canvas';
 import { resolveCatalogMedia } from '../lib/catalog';
-import { createLeaderResolver, LeaderAudioSession, type AudioStatus } from '../lib/leaderAudio';
+import { createLeaderResolver, LeaderAudioSession, resolveClipBank, type AudioStatus } from '../lib/leaderAudio';
 import { LeaderSoundtrack, useLeaderClips } from './LeaderSoundtrack';
 import { download } from '../lib/export';
 import { ChartCanvas, type ChartCanvasHandle } from './ChartCanvas';
@@ -110,7 +110,10 @@ export function Studio({
   const [recordProgress, setRecordProgress] = useState(0);
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const audioBank=useLeaderClips(audioNamespace);
-  const clipsRef=useRef(audioBank.clips);clipsRef.current=audioBank.clips;
+  const autoBank=useLeaderClips(audioNamespace,'auto');
+  const audioMode=settings.leaderAudioMode??'auto-manual';
+  const activeClips=useMemo(()=>resolveClipBank(audioMode,audioBank.clips,autoBank.clips),[audioMode,audioBank.clips,autoBank.clips]);
+  const clipsRef=useRef(activeClips);clipsRef.current=activeClips;
   const previewAudio=useRef<LeaderAudioSession|null>(null);
   const [audioStatus,setAudioStatus]=useState<AudioStatus>({phase:'idle',id:null});
   const resumeSound=()=>{
@@ -141,7 +144,7 @@ export function Studio({
     worker.postMessage({charts:charts.map(c=>({status:c.status,playCounts:c.playCounts,entries:c.entries.map(({id,plays})=>({id,plays}))})),library:library.map(({id,name})=>({id,name})),count:settings.barCount,metric:settings.barMetric});
     return()=>{active=false;worker.terminate();};
   },[charts,library,settings.mode,settings.barCount,settings.barMetric,autoBars]);
-  const preparing=busy||preparingBars||(!!settings.leaderAudio&&audioBank.loading);
+  const preparing=busy||preparingBars||(!!settings.leaderAudio&&(audioBank.loading||autoBank.loading));
   const automaticItems = useMemo(() => {const ids=new Set(automaticIds);return library.filter(item=>ids.has(item.id));},[library,automaticIds]);
   const selectedItems = useMemo(() => settings.mode === 'bars' && autoBars ? automaticItems : library.filter(i => selected.includes(i.id)), [library,selected,automaticItems,settings.mode,autoBars]);
   const selectedSet = useMemo(() => new Set(selectedItems.map(i=>i.id)), [selectedItems]);
@@ -677,7 +680,7 @@ export function Studio({
             </div>
           )}
 
-          {!expanded&&<LeaderSoundtrack items={selectedItems} clips={audioBank.clips} loading={audioBank.loading} error={audioBank.error} enabled={!!settings.leaderAudio} volume={settings.leaderVolume??.7} status={audioStatus} disabled={recording} onSave={audioBank.save} onEnabled={value=>{update('leaderAudio',value);if(value&&playing)resumeSound();if(!value){previewAudio.current?.dispose();previewAudio.current=null;}}} onVolume={value=>update('leaderVolume',value)}/>}
+          {!expanded&&<LeaderSoundtrack items={selectedItems} clips={audioBank.clips} autoClips={autoBank.clips} mode={audioMode} onMode={value=>update('leaderAudioMode',value)} onSaveAuto={autoBank.save} loading={audioBank.loading||autoBank.loading} error={audioBank.error||autoBank.error} enabled={!!settings.leaderAudio} volume={settings.leaderVolume??.7} status={audioStatus} disabled={recording} onSave={audioBank.save} onEnabled={value=>{update('leaderAudio',value);if(value&&playing)resumeSound();if(!value){previewAudio.current?.dispose();previewAudio.current=null;}}} onVolume={value=>update('leaderVolume',value)}/>}
 
           <div ref={stageRef} className={`canvas-stage ${viewMode === 'widescreen' ? 'widescreen-stage' : ''}`}>
             <ChartCanvas

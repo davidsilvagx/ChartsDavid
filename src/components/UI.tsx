@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useId, useRef, useState, type Rea
 import { ArrowDown, ArrowUp, Disc3, ExternalLink, Minus, Pause, Play, Square, Volume2, X } from 'lucide-react';
 import type { ChartEntry, Item, SyncProgress } from '../lib/types';
 import { peekCatalogMedia, resolveCatalogMedia } from '../lib/catalog';
+import { pushChrome } from '../lib/chrome';
 
 export function MusicLoader({
   size = 'sm',
@@ -279,7 +280,9 @@ export function Modal({
   useEffect(() => {
     const d = dialogRef.current;
     if (d && !d.open) d.showModal();
+    const release = pushChrome();
     return () => {
+      release();
       if (d?.open) d.close();
     };
   }, []);
@@ -302,10 +305,11 @@ export function Modal({
         void requestDismiss();
       }}
       onPointerDown={e => {
-        pressedOutsideRef.current = isOutside(e);
+        // Eventos vindos de outra janela (portal/diálogo aninhado) não fecham esta.
+        pressedOutsideRef.current = e.target instanceof Node && !!dialogRef.current?.contains(e.target) && isOutside(e);
       }}
       onPointerUp={e => {
-        if (pressedOutsideRef.current && isOutside(e)) {
+        if (pressedOutsideRef.current && e.target instanceof Node && dialogRef.current?.contains(e.target) && isOutside(e)) {
           void requestDismiss();
         }
         pressedOutsideRef.current = false;

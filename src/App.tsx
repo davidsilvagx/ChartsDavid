@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import {
   ArrowDownToLine,
@@ -87,8 +87,11 @@ import {
 import { AvatarPickerModal, ProfileAvatar, getAvatarLabel } from './components/Avatars';
 import { PlatformsHub, PlatformsModal, SourceFilterBar } from './components/Platforms';
 import { ChartCanvas } from './components/ChartCanvas';
-import { Studio } from './components/Studio';
-import { Spotlight, GramophoneIcon } from './components/Spotlight';
+import { GramophoneIcon } from './components/Gramophone';
+import { emptyMetaFilter, metaMatches, type MetaFilter } from './lib/metaFilter';
+import type { EffectiveMeta } from './lib/metadata';
+import { artworkColor, chromeFor, setChromeBase } from './lib/chrome';
+import { NotificationsPanel, useMilestoneNotifications } from './components/Notifications';
 import './styles.css';
 
 type Page = 'overview' | 'charts' | 'studio' | 'library' | 'settings';
@@ -104,6 +107,13 @@ const nav = [
   { id: 'library', label: 'Biblioteca', shortLabel: 'Acervo', icon: Library },
   { id: 'settings', label: 'Ajustes', shortLabel: 'Ajustes', icon: Settings2 },
 ] as const;
+
+// Telas pesadas carregam sob demanda: abertura mais rápida e menos trabalho no celular.
+const Studio = lazy(() => import('./components/Studio').then(m => ({ default: m.Studio })));
+const Spotlight = lazy(() => import('./components/Spotlight').then(m => ({ default: m.Spotlight })));
+const CatalogPanel = lazy(() => import('./components/CatalogPanel').then(m => ({ default: m.CatalogPanel })));
+const DeviceSync = lazy(() => import('./components/DeviceSync').then(m => ({ default: m.DeviceSync })));
+const Loading = () => <div className="spotlight-loading" role="status"><MusicLoader size="md" /><span>Carregando…</span></div>;
 
 const kindLabels: Record<Kind, string> = { tracks: 'Músicas', albums: 'Álbuns', artists: 'Artistas' };
 
@@ -157,6 +167,8 @@ function App() {
   const [installed,setInstalled]=useState(()=>matchMedia('(display-mode: standalone)').matches || (navigator as Navigator & {standalone?:boolean}).standalone===true);
   const [online, setOnline] = useState(navigator.onLine);
   const [libraryLimit, setLibraryLimit] = useState(60);
+  const [metaFilter, setMetaFilter] = useState<MetaFilter>(emptyMetaFilter);
+  const [libraryMeta, setLibraryMeta] = useState<Map<string, EffectiveMeta>>(new Map());
   const [systemDark, setSystemDark] = useState(() => matchMedia('(prefers-color-scheme: dark)').matches);
 
   // Audio preview state
@@ -181,6 +193,8 @@ function App() {
   const leader = known ? selected.entries[0] : undefined;
   const leaderArtwork = useArtworkUrl(leader ?? null);
   const heroArtwork = useArtworkUrl(player?.item ?? leader ?? null);
+  const libraryArtwork = useArtworkUrl(heroArtwork ? null : library[0] ?? null);
+  const pageArtwork = heroArtwork || libraryArtwork;
   const recent = useMemo(() => charts.filter(w => w.start <= (selected?.start ?? Infinity)).slice(-8), [charts, selected?.start]);
   const chartItems = useMemo(() => selected?.entries.slice(0, 5) ?? [], [selected]);
   const totalScrobbles = sourceCounts[sourceFilter];
@@ -195,6 +209,7 @@ function App() {
     .sort((a, b) => Number(b.change) - Number(a.change))[0];
 
   const records = useMemo(() => computeRecords(filtered), [filtered]);
+  useMilestoneNotifications(settings.user, charts, computing, settings.timezone);
   const pulseWeeks = useMemo(() => filtered.slice(-28), [filtered]);
   const maxPulsePlays = useMemo(() => Math.max(1, ...pulseWeeks.map(w => w.plays)), [pulseWeeks]);
 
@@ -218,9 +233,9 @@ function App() {
   const filteredLibrary = useMemo(
     () =>
       library.filter(
-        i => (!favOnly || favorites.includes(i.id)) && `${i.name} ${i.artist} ${i.album}`.toLowerCase().includes(query.toLowerCase()),
+        i => (!favOnly || favorites.includes(i.id)) && `${i.name} ${i.artist} ${i.album}`.toLowerCase().includes(query.toLowerCase()) && metaMatches(i, kind, libraryMeta, metaFilter),
       ),
-    [library, favOnly, favorites, query],
+    [library, favOnly, favorites, query, kind, libraryMeta, metaFilter],
   );
 
   useEffect(() => {
@@ -235,8 +250,16 @@ function App() {
   useEffect(() => {
     document.documentElement.dataset.theme = dark ? 'dark' : 'light';
     document.documentElement.dataset.motion = reduced ? 'reduced' : 'full';
-    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#080c14' : '#f2f5f9');
   }, [dark, reduced]);
+
+  // Topo do app e barra de status com a mesma cor, derivada da capa em destaque.
+  useEffect(() => {
+    let active = true;
+    const theme = dark ? 'dark' : 'light';
+    setChromeBase(chromeFor(theme, null));
+    void artworkColor(pageArtwork).then(rgb => { if (active) setChromeBase(chromeFor(theme, rgb)); });
+    return () => { active = false; };
+  }, [pageArtwork, dark]);
 
   useEffect(() => {
     try {
@@ -522,7 +545,8 @@ function App() {
       </aside>
 
       <div className="workspace">
-        <AmbientBackdrop src={heroArtwork} className="page-artwork" />
+        <AmbientBackdrop src={pageArtwork} className="page-artwork" />
+        <div className="page-grid" aria-hidden="true" />
         <header className="topbar">
           <div className="breadcrumb">
             <span>LastChart Studio</span>
@@ -604,9 +628,9 @@ function App() {
             </div>
           )}
 
-          <section className={`hero-banner ${page !== 'settings' && heroArtwork ? 'has-ambient' : ''}`}>
-            {page !== 'settings' && heroArtwork && (
-              <AmbientBackdrop src={heroArtwork} active={!!player?.playing} className="hero-ambient" />
+          <section className={`hero-banner ${pageArtwork ? 'has-ambient' : ''}`}>
+            {pageArtwork && (
+              <AmbientBackdrop src={pageArtwork} active={!!player?.playing} className="hero-ambient" />
             )}
             <div className="hero-rings" aria-hidden="true">
               <span />
@@ -708,6 +732,7 @@ function App() {
               duplicates={cached.reduce((n, w) => n + w.duplicates, 0)}
               years={years}
               onInstall={install}
+              charts={charts}
             />
           ) : (
             <>
@@ -721,6 +746,7 @@ function App() {
                       onClick={() => {
                         setKind(k);
                         setQuery('');
+                        setMetaFilter(emptyMetaFilter);
                         setLibraryLimit(60);
                       }}
                       aria-pressed={kind === k}
@@ -1259,7 +1285,7 @@ function App() {
               {page === 'studio' && (
                 <>
                 {studioPeriod && <div className="history-summary"><strong>Vídeo com {studioPeriod.charts.length} períodos personalizados</strong><p>{studioPeriod.charts[0]?.label} até {studioPeriod.charts.at(-1)?.label}</p><button type="button" className="text-button" onClick={() => setHistoryOpen(true)}>Alterar datas ou agrupamento</button><button type="button" className="text-button" onClick={() => setStudioPeriod(null)}>Voltar aos charts semanais</button></div>}
-                <Studio
+                <Suspense fallback={<Loading />}><Studio
                   key={studioPeriod ? `${studioPeriod.unit}-${studioPeriod.charts[0]?.id}-${studioPeriod.charts.at(-1)?.id}` : 'weekly'}
                   charts={studioPeriod?.charts ?? filtered}
                   library={studioPeriod?.library ?? library}
@@ -1275,10 +1301,11 @@ function App() {
                   initialSelected={studioSeed}
                   onConsumeInitial={() => setStudioSeed(undefined)}
                   onError={data.setError}
-                />
+                /></Suspense>
                 </>
               )}
 
+              {page === 'library' && <Suspense fallback={<Loading />}><CatalogPanel kind={kind} library={library} cached={cached} settings={settings} source={sourceFilter} filter={metaFilter} onFilter={value => { setMetaFilter(value); setLibraryLimit(60); }} onMeta={setLibraryMeta} /></Suspense>}
               {page === 'library' && (
                 <section className="panel">
                   <div className="panel-heading">
@@ -1457,10 +1484,10 @@ function App() {
 
       {historyOpen && <HistoryExplorer weeks={weeks} charts={charts} initialYear={year} selectedId={selected?.id} startDate={settings.startDate} computing={computing} progress={progress} error={error} onCancel={data.cancel} onSync={scope => void data.sync(scope)} onClose={() => setHistoryOpen(false)} onCalendar={() => {setHistoryOpen(false);navigate('settings');}} initialMode={page==='studio'?'period':'archive'} onChoose={week => {setYear(String(week.year));setWeekId(week.id);setHistoryOpen(false);navigate('charts');}} settings={settings} cached={cached} kind={kind} source={sourceFilter} onAnimate={result => {setStudioPeriod(result);setStudioSeed(undefined);setHistoryOpen(false);if(page!=='studio')navigate('studio');}} />}
 
-      {spotlightOpen&&<Spotlight charts={charts} library={library} owner={profile?.realname||(profile?.name&&profile.name!=='Iknowjauregui'?profile.name:'David')} namespace={settings.user} initialYear={year} dark={dark} kind={kind} timezone={settings.timezone} onClose={()=>setSpotlightOpen(false)} onDownload={value=>{setSpotlightOpen(false);void data.sync(value==='all'?'all':Number(value));}} onStudio={(ids,title,series,items,count)=>{
+      {spotlightOpen&&<Suspense fallback={null}><Spotlight charts={charts} library={library} cached={cached} settings={settings} source={sourceFilter} reduced={reduced} owner={profile?.realname||(profile?.name&&profile.name!=='Iknowjauregui'?profile.name:'David')} namespace={settings.user} initialYear={year} dark={dark} kind={kind} timezone={settings.timezone} onClose={()=>setSpotlightOpen(false)} onDownload={value=>{setSpotlightOpen(false);void data.sync(value==='all'?'all':Number(value));}} onStudio={(ids,title,series,items,count)=>{
         try{const saved=JSON.parse(localStorage.getItem('lastchart-studio:studio')??'{}');localStorage.setItem('lastchart-studio:studio',JSON.stringify({...studioDefaults,...saved,chartName:title,top:count,barCount:Math.min(count,30),mode:count>30?'lines':saved.mode??'lines'}));}catch{/* optional preference */}
         setStudioPeriod({charts:series,library:items,unit:'week'});setStudioSeed(ids);setSpotlightOpen(false);navigate('studio');
-      }}/>}
+      }}/></Suspense>}
 
       {avatarModal && (
         <AvatarPickerModal
@@ -1953,6 +1980,7 @@ function SettingsPage({
   duplicates,
   years,
   onInstall,
+  charts,
 }: {
   settings: Settings;
   profile: Profile | null;
@@ -1975,6 +2003,7 @@ function SettingsPage({
   duplicates: number;
   years: number[];
   onInstall: () => void;
+  charts: ChartWeek[];
 }) {
   const [draft, setDraft] = useState(settings);
   const [dateDraft, setDateDraft] = useState(() => formatDateBR(settings.startDate));
@@ -2412,11 +2441,41 @@ function SettingsPage({
           </div>
         </section>
 
+        <section className="panel">
+          <div className="panel-heading">
+            <div>
+              <h2>
+                <ShieldCheck size={19} />
+                <span>Projetos entre aparelhos</span>
+              </h2>
+              <p>Leve ajustes, premiações e trilhas para outro celular ou computador com uma chave só sua.</p>
+            </div>
+          </div>
+          <div className="settings-content">
+            <Suspense fallback={<Loading />}><DeviceSync timezone={settings.timezone} onError={onError} onNotice={onNotice} /></Suspense>
+          </div>
+        </section>
+
+        <section className="panel">
+          <div className="panel-heading">
+            <div>
+              <h2>
+                <Sparkles size={19} />
+                <span>Notificações de marcos</span>
+              </h2>
+              <p>Opcional: novo #1, certificações, aniversários de #1 e recordes semanais.</p>
+            </div>
+          </div>
+          <div className="settings-content">
+            <NotificationsPanel user={settings.user} charts={charts} timeZone={settings.timezone} onError={onError} onNotice={onNotice} />
+          </div>
+        </section>
+
         <div className="privacy-note">
           <ShieldCheck size={20} />
           <div>
-            <strong>100% independente e privado</strong>
-            <p>Nenhum dado sai do seu navegador para servidores de terceiros. Faça backup JSON antes de limpar o cache.</p>
+            <strong>Independente e privado</strong>
+            <p>Seu histórico fica no navegador. Só sai dele o que você pedir: consultas ao Last.fm e ao catálogo, e — se ativar a sincronização — o projeto cifrado neste aparelho. Faça backup JSON antes de limpar o cache.</p>
           </div>
         </div>
       </div>
