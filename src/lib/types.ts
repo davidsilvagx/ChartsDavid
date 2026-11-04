@@ -114,6 +114,9 @@ export interface SyncProgress {
 }
 
 export interface StudioSettings {
+  leaderAudio?: boolean;
+  leaderVolume?: number;
+  chartName?: string;
   previewFps?: 30 | 60;
   mode: 'lines' | 'bars';
   barMetric: 'cumulative' | 'weekly';
