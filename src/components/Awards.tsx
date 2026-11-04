@@ -37,12 +37,16 @@ export function Awards({ profile, period, periodLabel, title, pools, stats, meta
   // Regras de elegibilidade: janela de lançamento do período (ou qualquer lançamento) e ano de referência.
   const rules: Eligibility = useMemo(() => periodWindow ? { mode: ballot.eligibility, ...periodWindow } : { mode: 'any', start: 0, end: Date.now() / 1000, year: new Date().getFullYear() }, [periodWindow?.start, periodWindow?.end, ballot.eligibility]);
   const convene = () => { if (!pools) return; const result = conveneJury(ballot, pools, meta, stats, Date.now(), rules); save(result.ballot); setJuryReport({ decided: result.decided, skipped: result.skipped }); setPeek(false); };
+  // Um toque só: se faltam datas/carreiras no catálogo, verifica primeiro e convoca o júri ao terminar.
+  const [pendingConvene, setPendingConvene] = useState(false);
   const [verify, setVerify] = useState<{ done: number; total: number; current?: string } | null>(null);
   const verifyAbort = useRef<AbortController | null>(null);
   useEffect(() => () => verifyAbort.current?.abort(), []);
   const missing = (kind: Kind, n: number, need: (m?: EffectiveMeta) => boolean) => (pools?.[kind] ?? []).slice(0, n).filter(item => { const m = meta[kind]?.get(metaKey(kind, item)); return m?.status !== 'not-found' && need(m); });
   const toVerify = pools ? { tracks: missing('tracks', 25, m => !m?.releaseDate), albums: missing('albums', 15, m => !m?.releaseDate), artists: missing('artists', 20, m => !m?.firstRelease) } : null;
   const verifyCount = toVerify ? toVerify.tracks.length + toVerify.albums.length + toVerify.artists.length : 0;
+  useEffect(() => { if (pendingConvene && !verify) { setPendingConvene(false); convene(); } }, [pendingConvene, verify, meta]);
+  const conveneSmart = () => { if (verifyCount > 0 && navigator.onLine) { setPendingConvene(true); void runVerify(); } else convene(); };
   const runVerify = async () => {
     if (!toVerify) return;
     verifyAbort.current?.abort(); const abort = new AbortController(); verifyAbort.current = abort;
@@ -54,7 +58,7 @@ export function Awards({ profile, period, periodLabel, title, pools, stats, meta
         base += items.length;
         await onMetaRefresh();
       }
-    } catch { /* cancelado: o que já foi consultado fica salvo */ } finally { setVerify(null); await onMetaRefresh(); }
+    } catch { /* cancelado: o que já foi consultado fica salvo */ } finally { await onMetaRefresh(); setVerify(null); }
   };
   const favorites = useMemo(() => new Set(ballot.favorites), [ballot.favorites]);
   const selected = useMemo(() => new Set(ballot.selected), [ballot.selected]);
@@ -113,9 +117,11 @@ export function Awards({ profile, period, periodLabel, title, pools, stats, meta
         <p>Seis jurados analisam o seu histórico, cada um por um critério, e somam pontos (contagem Borda: 1º lugar vale mais). O resultado fica <strong>lacrado</strong> até a cerimônia. Eles não avaliam qualidade artística: só os seus hábitos.</p>
         <div className="jury-faces" aria-hidden="true">{judges.map((j, i) => <span key={j.id} style={{ animationDelay: `${i * 70}ms` }}><JurorAvatar id={j.id} size={36} /></span>)}</div>
         <details><summary>Conheça os jurados</summary><ul className="jury-list">{judges.map(j => <li key={j.id}><JurorAvatar id={j.id} size={30} /><span><strong>{j.name}</strong><small>{j.criterion}</small></span></li>)}</ul><small>Quem não tem dado para todos os indicados se abstém, sem chutar. Empate final: mais reproduções.</small></details>
-        <div className="inline-actions"><button type="button" className="button primary" disabled={!pools || !ballot.selected.length} onClick={convene}>{!pools ? <MusicLoader size="sm" tone="ink" /> : <Gavel size={16} />}<span>{Object.values(ballot.entries).some(e => e.method === 'jury') ? 'Convocar o júri de novo' : 'Convocar o júri'}</span></button>
+        <div className="inline-actions"><button type="button" className="button primary" disabled={!pools || !ballot.selected.length || !!verify} onClick={conveneSmart}>{!pools ? <MusicLoader size="sm" tone="ink" /> : <Gavel size={16} />}<span>{Object.values(ballot.entries).some(e => e.method === 'jury') ? 'Convocar o júri de novo' : 'Convocar o júri'}</span></button>
           {Object.values(ballot.entries).some(e => e.method === 'jury') && <button type="button" className="text-button" aria-pressed={peek} onClick={() => setPeek(!peek)}>{peek ? 'Lacrar resultados' : 'Espiar resultados (estraga a surpresa)'}</button>}</div>
+        {pendingConvene && verify && <p className="ballot-status" role="status"><MusicLoader size="sm" /> Conferindo lançamentos e carreiras no catálogo antes de o júri votar…</p>}
         {juryReport && <p className="ballot-status ok" role="status"><Lock size={14} /> {juryReport.decided} {juryReport.decided === 1 ? 'categoria decidida' : 'categorias decididas'} e lacradas.{juryReport.skipped.length ? ` ${juryReport.skipped.length} sem dados para o júri: vote nelas ou indique manualmente.` : ''}</p>}
+        {!!juryReport?.skipped.length && <details className="jury-skipped"><summary>Por que algumas ficaram de fora?</summary><ul>{juryReport.skipped.map(x => <li key={x.categoryId}><strong>{grammyById.get(x.categoryId)?.label}</strong><small>{x.reason}</small></li>)}</ul></details>}
       </div>}
       <details className="period-help"><summary>Como votar?</summary><p>Para cada categoria, aceite as sugestões, procure no seu acervo ou digite um indicado manual. Depois marque o vencedor (mais de um vira empate). Sugestões usam reproduções e gênero do catálogo; elas não comprovam créditos, formação, subgênero ou elegibilidade oficial. Período: {periodLabel}.</p></details>
       {loading && <div className="spotlight-loading" role="status"><MusicLoader size="md" /><span>Reunindo músicas, álbuns e artistas do período…</span></div>}

@@ -5913,3 +5913,7 @@ label.search-field { flex-direction:row; align-items:center; }
   .extras-grid { grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); }
 }
 @media (min-width:1500px) { .extras-grid { grid-template-columns:repeat(4,minmax(0,1fr)); } }
+.jury-skipped summary { cursor:pointer; color:var(--gold); font-weight:700; font-size:.74rem; }
+.jury-skipped ul { list-style:none; margin:8px 0 0; padding:0; display:grid; gap:6px; }
+.jury-skipped strong { display:block; font-size:.74rem; }
+.jury-skipped small { color:var(--muted); font-size:.66rem; line-height:1.5; }
