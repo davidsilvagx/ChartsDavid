@@ -17,14 +17,16 @@ import { pushChrome } from '../lib/chrome';
  */
 export function Ceremony({ cards, title, period, reduced, onClose }: { cards: RevealCard[]; title: string; period: string; reduced: boolean; onClose: () => void }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const windowRef = useRef<HTMLDivElement>(null);
   const primaryRef = useRef<HTMLButtonElement>(null);
   const [state, rawDispatch] = useReducer((s: CeremonyState, e: CeremonyEvent) => ceremonyReducer(s, e, reduced), cards.length, initialCeremony);
   const dispatch = rawDispatch;
   const [confetti, setConfetti] = useState(false);
   const card = cards[state.index];
   const winner = card?.winners[0];
-  const art = useArtworkUrl(state.phase === 'revealed' || state.phase === 'curtains' || state.phase === 'finished' ? winner ?? null : null);
-  const pieces = useMemo(() => confettiPieces(state.reveals + state.index * 7), [state.reveals, state.index]);
+  // Resolve a capa antes da transição; a camada continua invisível até a revelação.
+  const art = useArtworkUrl(winner ?? null);
+  const pieces = useMemo(() => confettiPieces(state.reveals + state.index * 7, 24), [state.reveals, state.index]);
 
   useEffect(() => { const d = dialogRef.current; if (d && !d.open) d.showModal(); const release = pushChrome(() => '#05080e'); return () => { release(); if (d?.open) d.close(); }; }, []);
   // Timers do roteiro: sempre limpos ao mudar de fase, fechar ou desmontar.
@@ -46,6 +48,7 @@ export function Ceremony({ cards, title, period, reduced, onClose }: { cards: Re
     return () => document.removeEventListener('visibilitychange', hidden);
   }, []);
   useEffect(() => { primaryRef.current?.focus({ preventScroll: true }); }, [state.phase, state.index]);
+  useEffect(() => { if (state.phase === 'nominees' || state.phase === 'suspense') windowRef.current?.scrollTo({ top: 0, behavior: 'instant' }); }, [state.phase, state.index]);
 
   const animating = state.phase === 'suspense' || state.phase === 'curtains';
   const curtainsClosed = state.phase === 'nominees' || state.phase === 'suspense';
@@ -79,14 +82,14 @@ export function Ceremony({ cards, title, period, reduced, onClose }: { cards: Re
         </div>
         <div className="cer-curtain-frame">
           {animating&&<div className={`cer-curtains ${curtainsClosed ? 'is-closed' : 'is-open'}`} aria-hidden="true"><i className="left" /><i className="right" /></div>}
-          <div className="cer-window">
-            {(state.phase === 'revealed' || state.phase === 'curtains') && winner ? <div className="cer-winner" key={state.reveals}>
+          <div className="cer-window" ref={windowRef}>
+            {(state.phase === 'revealed' || state.phase === 'curtains') && winner ? <div className="cer-winner" key={state.index}>
               <div className="cer-cover"><Cover item={winner} size="large" /></div>
               <span className="cer-label">{card.winners.length > 1 ? `Empate · ${card.winners.length} vencedores` : 'E o prêmio vai para'}</span>
               <h3>{card.winners.map(w => w.name).join(' & ')}</h3>
               <p>{[...new Set(card.winners.map(w => w.artist))].join(' · ')}</p>
               <small>{card.method === 'jury' ? `Decisão do júri · ${(card.jury?.totals[winner.id] ?? 0).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} pontos` : card.method === 'vote' ? 'Seu voto pessoal' : 'Sugestão aceita por você'} · {winner.basis}</small>
-              {card.jury && state.phase === 'revealed' && <details className="cer-jury" open><summary>Como o júri votou</summary><ul>{card.jury.judges.map((v, i) => { const judge = judges.find(j => j.id === v.judge); const pick = card.nominees.find(n => n.id === v.ranking[0]); return <li key={v.judge} style={{ animationDelay: `${500 + i * 180}ms` }}><strong><JurorAvatar id={v.judge as never} size={22} /> {v.name ?? judge?.name}</strong><span>{v.abstain ? `Absteve-se: ${v.abstain}` : `1º: ${pick?.name ?? '—'}`}{v.criterion && <small>{v.criterion}</small>}<em>{juryQuote(v, card)}</em></span></li>; })}</ul><small>Placar: {card.nominees.map(n => `${n.name} ${(card.jury!.totals[n.id] ?? 0).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}`).join(' · ')}</small></details>}
+              {card.jury && <details className="cer-jury"><summary>Como o júri votou</summary><ul>{card.jury.judges.map(v => { const judge = judges.find(j => j.id === v.judge); const pick = card.nominees.find(n => n.id === v.ranking[0]); return <li key={v.judge}><strong><JurorAvatar id={v.judge as never} size={22} /> {v.name ?? judge?.name}</strong><span>{v.abstain ? `Absteve-se: ${v.abstain}` : `1º: ${pick?.name ?? '—'}`}{v.criterion && <small>{v.criterion}</small>}<em>{juryQuote(v, card)}</em></span></li>; })}</ul><small>Placar: {card.nominees.map(n => `${n.name} ${(card.jury!.totals[n.id] ?? 0).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}`).join(' · ')}</small></details>}
             </div> : <div className="cer-nominees">
               <span className="cer-label">{state.phase === 'nominees' ? 'Os indicados são' : 'E o prêmio vai para…'}</span>
               <ul>{card.nominees.slice(0, 6).map(n => <li key={n.id}><Cover item={n} /><span className="truncate"><strong>{n.name}</strong><small>{n.artist}</small></span></li>)}</ul>

@@ -5395,13 +5395,14 @@ body::before { content:''; position:fixed; inset:0; z-index:-2; pointer-events:n
 
 /* ——— Cerimônia (F08): palco próprio, cortinas verdes com dourado, confetes limitados ——— */
 dialog.ceremony-dialog { color-scheme:dark; --surface:#0f1623; --surface-alt:#162032; --surface-elev:#1a263b; --text:#f1f5f9; --muted:#a3b3c8; --line:rgba(255,255,255,.1); --line-strong:rgba(255,255,255,.2); --accent:#22dc6e; --accent-ink:#04130a; --gold:#f5c451; --gold-soft:color-mix(in oklab,#f5c451 16%,transparent); --accent-soft:color-mix(in oklab,#22dc6e 14%,transparent);
-  width:100vw; height:100dvh; max-width:none; max-height:none; margin:0; padding:0; border:0; background:#05080e; color:var(--text); overflow:hidden auto; overscroll-behavior:contain; }
+  width:100vw; height:100dvh; max-width:none; max-height:none; margin:0; padding:0; border:0; background:#05080e; color:var(--text); overflow:hidden; overscroll-behavior:contain; }
 dialog.ceremony-dialog::backdrop { background:#05080e; }
-.cer-stage { position:relative; isolation:isolate; min-height:100%; display:grid; grid-template-rows:auto auto minmax(0,1fr) auto; gap:clamp(10px,2.2dvh,22px); padding:max(14px,env(safe-area-inset-top)) clamp(14px,4vw,40px) max(18px,env(safe-area-inset-bottom)); overflow:hidden;
+.cer-stage { position:relative; isolation:isolate; height:100dvh; min-height:0; display:grid; grid-template-rows:auto auto minmax(0,1fr) auto; gap:clamp(10px,2.2dvh,22px); padding:max(14px,env(safe-area-inset-top)) clamp(14px,4vw,40px) max(18px,env(safe-area-inset-bottom)); overflow:hidden;
   background:radial-gradient(ellipse 90% 60% at 50% -12%,color-mix(in oklab,#22dc6e 20%,transparent),transparent 62%),linear-gradient(180deg,#07140f 0%,#05080e 72%); }
 .cer-stage::before { content:''; position:absolute; inset:0; z-index:-1; pointer-events:none; background-image:linear-gradient(rgba(255,255,255,.028) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.028) 1px,transparent 1px); background-size:64px 64px; -webkit-mask-image:radial-gradient(ellipse at 50% 40%,#000,transparent 80%); mask-image:radial-gradient(ellipse at 50% 40%,#000,transparent 80%); }
-.cer-art { position:absolute; inset:-8%; z-index:-2; pointer-events:none; animation:cer-fade .5s ease-out both; }
-.cer-art img { width:100%; height:100%; object-fit:cover; filter:blur(44px) saturate(1.35) brightness(.55); opacity:.6; }
+.cer-art { position:absolute; inset:0; z-index:-2; pointer-events:none; contain:paint; opacity:0; transition:opacity .4s ease-out; }
+.phase-curtains .cer-art, .phase-revealed .cer-art, .phase-finished .cer-art { opacity:.6; }
+.cer-art img { width:100%; height:100%; object-fit:cover; filter:blur(24px) saturate(1.2) brightness(.55); transform:scale(1.12); }
 .cer-light { position:absolute; z-index:-1; left:50%; top:-22vmin; width:130vmin; height:130vmin; transform:translateX(-50%); pointer-events:none; background:radial-gradient(closest-side,rgba(255,236,190,.16),rgba(255,236,190,.04) 55%,transparent); opacity:.6; transition:opacity .4s; }
 .phase-revealed .cer-light, .phase-finished .cer-light { opacity:1; }
 .cer-top { display:flex; justify-content:space-between; align-items:center; gap:12px; }
@@ -5412,7 +5413,7 @@ dialog.ceremony-dialog::backdrop { background:#05080e; }
 .cer-head .eyebrow { color:var(--gold); }
 .cer-head h2 { margin:0; font-size:clamp(1.35rem,4.6vw,2.4rem); letter-spacing:-.045em; line-height:1.15; max-width:22ch; overflow-wrap:anywhere; }
 .cer-head p { margin:0; color:var(--muted); font-size:.74rem; }
-.cer-curtain-frame { position:relative; width:min(620px,100%); justify-self:center; align-self:stretch; min-height:clamp(260px,46dvh,520px); border-radius:28px; overflow:hidden; border:1px solid rgba(255,255,255,.12); background:radial-gradient(ellipse at 50% 0%,rgba(34,220,110,.1),transparent 72%),linear-gradient(150deg,#12231e,#0c1420 68%); box-shadow:0 24px 64px rgba(0,0,0,.32); }
+.cer-curtain-frame { position:relative; width:min(620px,100%); justify-self:center; align-self:stretch; min-height:0; contain:layout paint; border-radius:28px; overflow:hidden; border:1px solid rgba(255,255,255,.12); background:radial-gradient(ellipse at 50% 0%,rgba(34,220,110,.1),transparent 72%),linear-gradient(150deg,#12231e,#0c1420 68%); box-shadow:0 24px 64px rgba(0,0,0,.32); }
 .cer-curtains { position:absolute; inset:0; z-index:3; pointer-events:none; }
 .cer-curtains i { position:absolute; top:0; bottom:0; width:51%; will-change:transform; transition:transform .65s cubic-bezier(.75,0,.22,1);
   background:linear-gradient(90deg,#0b281d,#175b3b 38%,#103b2b 75%,#092318); box-shadow:inset 0 0 70px rgba(0,0,0,.22); }
@@ -5420,7 +5421,8 @@ dialog.ceremony-dialog::backdrop { background:#05080e; }
 .cer-curtains i.right { right:0; transform-origin:right center; }
 .cer-curtains.is-open i.left { transform:translateX(-102%); }
 .cer-curtains.is-open i.right { transform:translateX(102%); }
-.cer-window { position:relative; min-height:inherit; height:100%; display:grid; place-items:center; padding:46px 18px 22px; text-align:center; }
+.cer-window { position:relative; min-height:0; height:100%; display:flex; flex-direction:column; align-items:center; overflow:auto; overscroll-behavior:contain; padding:22px 18px; text-align:center; }
+.cer-window > .cer-winner, .cer-window > .cer-nominees { flex:none; margin-block:auto; width:100%; }
 .cer-label { display:block; color:var(--gold); font-size:.72rem; font-weight:800; letter-spacing:.08em; text-transform:uppercase; margin-bottom:12px; }
 .cer-nominees { position:relative; z-index:4; width:100%; }
 .phase-nominees .cer-nominees, .phase-suspense .cer-nominees { padding:0 6%; }
@@ -5442,7 +5444,7 @@ dialog.ceremony-dialog::backdrop { background:#05080e; }
 .cer-confetti i.dot { border-radius:50%; }
 .cer-actions { display:flex; flex-wrap:wrap; gap:10px; justify-content:center; }
 .cer-actions .button { min-height:48px; }
-.cer-finale { grid-row:2/-1; display:grid; gap:12px; justify-items:center; align-content:start; text-align:center; width:min(720px,100%); justify-self:center; }
+.cer-finale { grid-row:2/-1; min-height:0; overflow:auto; display:grid; gap:12px; justify-items:center; align-content:start; text-align:center; width:min(720px,100%); justify-self:center; }
 .cer-finale h2 { margin:0; font-size:clamp(1.5rem,5vw,2.4rem); letter-spacing:-.05em; }
 .cer-finale > p { margin:0; color:var(--muted); font-size:.76rem; }
 .cer-summary { list-style:none; padding:0; margin:8px 0; width:100%; display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:8px; }
@@ -5798,11 +5800,10 @@ label.search-field { flex-direction:row; align-items:center; }
 .cer-deliberation { display:grid; justify-items:center; gap:10px; margin-top:16px; }
 .cer-deliberation small { color:var(--gold); font-weight:700; letter-spacing:.04em; }
 .cer-deliberation div { display:flex; gap:8px; }
-.cer-deliberation span { opacity:.25; filter:grayscale(1); animation:juror-vote .35s ease-out forwards; }
-.cer-deliberation span.abstain { animation-name:juror-abstain; }
-@keyframes juror-vote { to { opacity:1; filter:none; transform:translateY(-4px) scale(1.08); } }
-@keyframes juror-abstain { to { opacity:.45; filter:grayscale(1); } }
-.cer-jury li { opacity:0; animation:rise-in .35s ease-out forwards; }
+.cer-deliberation > div > span { opacity:.25; animation:juror-vote .35s ease-out forwards; }
+.cer-deliberation > div > span.abstain { animation-name:juror-abstain; }
+@keyframes juror-vote { to { opacity:1; transform:translateY(-4px) scale(1.08); } }
+@keyframes juror-abstain { to { opacity:.45; } }
 .ceremony-dialog.is-reduced .cer-jury li, :root[data-motion='reduced'] .cer-jury li { opacity:1; }
 .eligibility-panel { display:grid; gap:8px; margin:0 0 14px; padding:12px; border-radius:16px; border:1px solid var(--line); background:color-mix(in srgb,var(--surface) 72%,transparent); }
 .eligibility-panel > small { color:var(--muted); font-size:.68rem; line-height:1.55; }

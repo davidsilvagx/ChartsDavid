@@ -45,3 +45,15 @@ Artistas com carreira anterior podem concorrer com a atividade no ano escolhido;
 Testes de regressão cobrem curadoria determinística no Top 20, limite de cinco, pools pequenos/vazios, carreira antiga com estreia pessoal recente, reentradas, semanas anteriores ausentes/incompletas, filtros de fonte, desempate alinhado ao motor de charts, cálculo 45/35/20, componentes zerados e preservação das cédulas.
 
 Validação visual no Opera em 360 × 740, 384 × 854 e 854 × 384 CSS pixels; tutorial e cerimônia em retrato/paisagem, critérios com o histórico real Iknowjauregui. Emulação de viewport não equivale a teste em hardware Galaxy físico.
+
+## Correção da transição de resultado
+
+Problema reproduzido no Opera: ao terminar as cortinas, `reveals` mudava e era usado como chave do vencedor. Isso desmontava a capa e reiniciava a animação de entrada. Ao mesmo tempo, o painel do júri era inserido já expandido: o palco passava de 854 para 1.160 px, empurrando os controles para fora da tela e redimensionando a camada de capa desfocada.
+
+- A chave agora é a categoria; o mesmo elemento do vencedor permanece entre cortinas e resultado. Replay continua criando uma entrada nova porque passa novamente pelo suspense.
+- Júri presente desde a entrada do vencedor, inicialmente recolhido e aberto por toque. Sem inserção de conteúdo nem animações dos pareceres no meio da revelação.
+- Palco limitado à altura visível; conteúdo longo e júri expandido rolam dentro do card. Cabeçalho e ações permanecem acessíveis. Nova categoria/replay reiniciam a rolagem interna.
+- Capa resolvida antes da transição e revelada por opacidade numa camada limitada ao palco. Blur reduzido de 44 para 24 px, confetes de 34 para 24; deliberação anima só os seis contêineres dos jurados, sem filtros animados nem animação duplicada nos avatares internos.
+- Critérios, indicados, votos, pontuações e sincronização preservados.
+
+Validação: 180 testes e build/TypeScript aprovados; júri real, abrir/fechar pareceres, replay, pular, próxima categoria, resumo final e reinício. Medição do DOM confirmou o mesmo nó do vencedor e palco de 854 px durante toda a transição. Telas de 360 × 740, 384 × 854 e 854 × 384, incluindo CPU limitada a 4× no DevTools; controles acessíveis com júri expandido. Fixture local isolada em 320 × 568 para título longo, voto sem júri e movimento reduzido (sem cortinas/confetes). Essas verificações não medem FPS, aquecimento ou desempenho de um Galaxy físico.
