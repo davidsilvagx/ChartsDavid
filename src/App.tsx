@@ -639,9 +639,9 @@ function App() {
         </div>
       </aside>
 
+      <AmbientBackdrop src={pageArtwork} className="page-artwork" />
+      <div className="page-grid" aria-hidden="true" />
       <div className="workspace">
-        <AmbientBackdrop src={pageArtwork} className="page-artwork" />
-        <div className="page-grid" aria-hidden="true" />
         <header className="topbar">
           <div className="breadcrumb">
             <span>LastChart Studio</span>
@@ -2770,8 +2770,9 @@ function ConnectAccountModal({
 
   return (
     <Modal
+      className="connect-account-dialog"
       title="Conecte seu Last.fm"
-      subtitle="Sem senhas! O app lê apenas seus scrobbles públicos para montar seus charts e premiações."
+      subtitle="Não pedimos sua senha do Last.fm: usamos seus scrobbles públicos para montar charts e premiações."
       onClose={onClose}
     >
       <form className="connect-modal-form" onSubmit={submit}>
