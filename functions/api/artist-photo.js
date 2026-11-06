@@ -1,3 +1,3 @@
-import { requireAccount } from '../../server/auth.mjs';
+import { authenticated } from '../../server/auth.mjs';
 import { handleArtistPhoto } from '../../server/artist-photo.mjs';
-export const onRequestGet = async context => (await requireAccount(context.request,context.env)) ?? handleArtistPhoto(context.request);
+export const onRequestGet = context => authenticated(handleArtistPhoto)(context.request,context.env);
