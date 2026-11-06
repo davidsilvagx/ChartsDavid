@@ -55,7 +55,7 @@ export function AccountPanel() {
           setError("Use 12 a 72 bytes, maiúscula, minúscula, número e símbolo; repita a mesma senha.");
           return;
         }
-        account.prepareLogin(carry);
+        account.prepareLogin(carry,email);
         const { data, error } = await supabase.auth.signUp({
           email: email.trim(),
           password,
@@ -71,7 +71,7 @@ export function AccountPanel() {
         setPassword("");
         setConfirm("");
       } else {
-        account.prepareLogin(carry);
+        account.prepareLogin(carry,email);
         const { error } = await supabase.auth.signInWithPassword({
           email: email.trim(),
           password,
