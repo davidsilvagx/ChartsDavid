@@ -5,7 +5,8 @@ export function closedCache(calendar: Week[], cached: CachedWeek[], now = Date.n
   const closed = new Map(calendar.filter(w => w.end <= now / 1000).map(w => [w.id, { ...w, partial: false }]));
   return cached.flatMap(c => {
     const week = closed.get(c.week.id);
-    return week ? [{ ...c, week }] : [];
+    // A draft saved before Friday is not a final result merely because the clock rolled over.
+    return week && c.cutoff >= week.end ? [{ ...c, week }] : [];
   });
 }
 

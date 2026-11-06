@@ -22,7 +22,7 @@ Cada item só recebe [x] após implementação e verificação. Dependências ex
 
 ## Entrega e validação
 
-- [x] TypeScript, 198 testes de regressão (26 arquivos) e build de produção.
+- [x] TypeScript, 199 testes de regressão (26 arquivos) e build de produção.
 - [x] Opera real: fluxos principais em 390×844, 768×1024, 1024×768 e 1440×1000.
 - [ ] Commits, merge em main e push.
 - [ ] Deploy Vercel e verificação do endereço publicado.
@@ -37,7 +37,7 @@ Cada item só recebe [x] após implementação e verificação. Dependências ex
 
 ## Evidências da implementação
 
-- Semana aberta isolada no Worker: só o Live recebe o último período. Acervo, contagens, perfil, júri, notificações, histórico e vídeos consomem semanas encerradas. O calendário vira automaticamente na próxima sexta; um cache salvo como parcial é reconciliado com o calendário atual.
+- Semana aberta isolada no Worker: só o Live recebe o último período. Acervo, contagens, perfil, júri, notificações, histórico e vídeos consomem semanas encerradas. O calendário vira automaticamente na próxima sexta; um cache salvo como parcial só é promovido após conter o fechamento completo, sem transformar rascunhos em resultados oficiais.
 - Live: atualização manual ou opt-in a cada 2 minutos com a tela visível. É uma prévia consultada no Last.fm, sem promessa de streaming instantâneo ou de posições definitivas.
 - Conquistas: 280 IDs únicos (180 de fandoms, 36 de gêneros, 24 de décadas e 40 de marcos/hábitos/tempo), cálculo em Worker, progresso, filtros, PNG 1080×1080, SVG e compartilhamento nativo com imagem quando suportado.
 - Meu eu do passado: blocos de 1, 4, 13 ou 52 semanas; cobertura explícita; comparação por participação de artistas. Ausência em um bloco não é chamada de estreia no histórico inteiro.

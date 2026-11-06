@@ -1,2 +1,2 @@
 import { handleArtistPhoto } from '../server/artist-photo.mjs';
-export const GET = handleArtistPhoto;
+export const GET = request => handleArtistPhoto(request);

@@ -34,6 +34,13 @@ describe('Closed weeks and duration', () => {
     expect(formatWeeks(52, 'weeks')).toBe('52 semanas'); expect(formatWeeks(52, 'equivalent')).toContain('meses');
     expect(formatDays(NaN)).toBe('0 dias'); expect(formatDays(-1)).toBe('0 dias');
   });
+  it('does not promote a saved draft to an official week without fetching the final cutoff', () => {
+    const boundary = weeks[6].end * 1000;
+    const calendar = makeWeeks(settings, boundary);
+    const draft = cache(6, [play(6)]);
+    expect(closedCache(calendar, [draft], boundary)).toEqual([]);
+    expect(closedCache(calendar, [{ ...draft, cutoff: weeks[6].end }], boundary)[0].week).toMatchObject({ id: weeks[6].id, partial: false });
+  });
   it('never uses an album cover for an artist domain item', () => {
     const data = [cache(0, [play(0)])];
     expect(getLibrary(data, 'artists')[0]).toMatchObject({ image: '', album: '' });

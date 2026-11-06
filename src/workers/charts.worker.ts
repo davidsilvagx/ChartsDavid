@@ -16,7 +16,8 @@ self.onmessage = (
   const { id, weeks, cached, kind, deduplicate, aliases, sourceFilter = 'all' } = event.data;
   try {
     const closed = closedCache(weeks, cached);
-    const series = buildCharts(weeks, cached, kind, deduplicate, aliases, sourceFilter);
+    const open = new Set(weeks.filter(w => w.partial).map(w => w.id));
+    const series = buildCharts(weeks, [...closed, ...cached.filter(c => open.has(c.week.id))], kind, deduplicate, aliases, sourceFilter);
     self.postMessage({
       id,
       charts: series.filter(w => !w.partial),
