@@ -1,4 +1,10 @@
 export const OWNER_KEY = "lastchart-account:workspace-owner";
+export function rememberLoginIntent(carry:boolean,email:string,storage:Storage=localStorage){
+  storage.setItem('lastchart-account:login-intent',JSON.stringify({carry,email:email.trim().toLowerCase(),expires:Date.now()+3600000}));
+}
+export function hasLoginIntent(email:string,storage:Storage=localStorage){
+  try{const intent=JSON.parse(storage.getItem('lastchart-account:login-intent')??'null');return intent?.carry===true&&intent.email===email.trim().toLowerCase()&&intent.expires>Date.now();}catch{return false;}
+}
 export function workspaceOwner(storage?:Storage){try{return (storage??localStorage).getItem(OWNER_KEY)||'guest';}catch{return 'guest';}}
 export const isWorkspaceKey = (key: string) =>
   /^(lastchart-studio:(settings:v1|studio|favorites|source-filter:v1|view-mode|quick-access|custom-user:v1)|lastchart-sync:v1)$/.test(
