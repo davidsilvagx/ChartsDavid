@@ -13,6 +13,10 @@
   to = "/.netlify/functions/itunes"
   status = 200
 [[redirects]]
+  from = "/api/artist-photo"
+  to = "/.netlify/functions/artist-photo"
+  status = 200
+[[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200
