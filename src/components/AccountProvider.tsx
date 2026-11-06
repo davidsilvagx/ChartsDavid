@@ -15,6 +15,8 @@ import { copyGuestDatabaseToAccount } from "../lib/storage";
 import {
   switchWorkspacePreferences,
   workspaceOwner,
+  rememberLoginIntent,
+  hasLoginIntent,
 } from "../lib/accountWorkspace";
 import {
   AccountConflict,
@@ -34,7 +36,7 @@ interface AccountContextValue {
   session: Session | null;
   recovery: boolean;
   finishRecovery: () => void;
-  prepareLogin: (carry: boolean) => void;
+  prepareLogin: (carry: boolean, email: string) => void;
   sync: (preference?: "local" | "remote", force?: boolean) => Promise<void>;
   status: string;
   busy: boolean;
@@ -59,8 +61,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     [busy, setBusy] = useState(false),
     [conflict, setConflict] = useState<AccountConflict | null>(null),
     [lastSync, setLastSync] = useState(0);
-  const carry = useRef(false),
-    switching = useRef(false),
+  const switching = useRef(false),
     running = useRef(false),
     initializing = useRef(true),
     dirty = useRef(true),
@@ -91,9 +92,10 @@ export function AccountProvider({ children }: { children: ReactNode }) {
         switching.current = true;
         try {
           const bring =
-            carry.current && workspaceOwner() === "guest" && owner !== "guest";
+            hasLoginIntent(next?.user.email ?? '') && workspaceOwner() === "guest" && owner !== "guest";
           if (bring) await copyGuestDatabaseToAccount(owner);
           switchWorkspacePreferences(owner, bring);
+          localStorage.removeItem('lastchart-account:login-intent');
           if (bring)
             localStorage.setItem(
               `lastchart-account:import-guest:${owner}`,
@@ -341,8 +343,8 @@ export function AccountProvider({ children }: { children: ReactNode }) {
           sessionStorage.removeItem("lastchart-account:recovery");
           setRecovery(false);
         },
-        prepareLogin: (value) => {
-          carry.current = value;
+        prepareLogin: (value, email) => {
+          rememberLoginIntent(value,email);
         },
         sync,
         status,
