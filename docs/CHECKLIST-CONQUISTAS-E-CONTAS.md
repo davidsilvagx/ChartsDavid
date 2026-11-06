@@ -12,7 +12,9 @@ Base preservada: `c84c382` (convidado, duelo pop e trilha sonora) e `ef69afc` (Q
 - [x] Validar concorrência, isolamento de contas, offline e recuperação sem sobrescrever histórico.
 - [x] Executar testes automatizados, TypeScript e build.
 - [x] Testar no Opera em celular, tablet e desktop (emulação; aparelhos físicos ainda precisam de validação).
-- [ ] Commit, push, merge e deploy; validar produção.
+- [x] Commit, push, merge e deploy; validar produção.
+
+Entrega publicada: [PR #15](https://github.com/davidsilvagx/ChartsDavid/pull/15), merge `8ec47e3`, em [charts-david.vercel.app](https://charts-david.vercel.app/). CI e preview aprovados; produção Ready na Vercel e interface conferida no Opera. Os arquivos enviados foram comparados com a árvore local testada e coincidiram integralmente.
 
 ## Evidências até aqui
 
