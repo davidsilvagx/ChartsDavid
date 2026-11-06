@@ -49,6 +49,8 @@ import {
   WifiOff,
   X,
 } from 'lucide-react';
+import { AccountEntry } from './components/AccountEntry';
+import { AchievementCelebration } from './components/AchievementCelebration';
 import { useData } from './lib/useData';
 import { HistoryExplorer } from './components/HistoryExplorer';
 import type { PeriodResult } from './components/PeriodExplorer';
@@ -134,6 +136,7 @@ const CatalogPanel = lazy(() => import('./components/CatalogPanel').then(m => ({
 const Extras = lazy(() => import('./components/Extras').then(m => ({ default: m.Extras })));
 const Welcome = lazy(() => import('./components/Welcome').then(m => ({ default: m.Welcome })));
 const OfficialAwards = lazy(() => import('./components/OfficialAwards').then(m => ({ default: m.OfficialAwards })));
+const AccountPanel = lazy(() => import('./components/AccountPanel').then(m => ({ default: m.AccountPanel })));
 const DeviceSync = lazy(() => import('./components/DeviceSync').then(m => ({ default: m.DeviceSync })));
 const AnnualRecords = lazy(() => import('./components/AnnualRecords').then(m => ({ default: m.AnnualRecords })));
 const Loading = () => <div className="spotlight-loading" role="status"><MusicLoader size="md" /><span>Carregando…</span></div>;
@@ -142,6 +145,7 @@ const kindLabels: Record<Kind, string> = { tracks: 'Músicas', albums: 'Álbuns'
 
 function App() {
   const [page, setPage] = useState<Page>('overview');
+  const [sidebarExpanded, setSidebarExpanded] = useState(false);
   const [chartsTab, setChartsTab] = useState<'weekly' | 'records' | 'live'>('weekly');
   const [kind, setKind] = useState<Kind>('tracks');
   const data = useData(kind);
@@ -304,6 +308,7 @@ function App() {
     const params = new URLSearchParams(location.search);
     const syncKey = params.get('sync');
     if (syncKey) {
+      if (localStorage.getItem('lastchart-account:workspace-owner') && localStorage.getItem('lastchart-account:workspace-owner') !== 'guest') { data.setNotice('Você está em uma conta LastChart. Para combinar um projeto antigo por chave, abra Projetos entre aparelhos nos Ajustes.'); history.replaceState(null, '', location.pathname); return; }
       history.replaceState(null, '', location.pathname);
       data.setNotice('Conectando e baixando seus charts da nuvem…');
       void pullRemoteProject(syncKey)
@@ -584,24 +589,25 @@ function App() {
   const legendPalette = palettes.neon;
 
   return (
-    <DurationContext.Provider value={settings.durationMode ?? 'weeks'}><ModalArtworkContext.Provider value={heroArtwork}><div className="app-shell">
+    <DurationContext.Provider value={settings.durationMode ?? 'weeks'}><ModalArtworkContext.Provider value={heroArtwork}><div className={`app-shell ${sidebarExpanded ? 'sidebar-expanded' : 'sidebar-collapsed'}`}>
       <a href="#main" className="skip-link">
         Pular para o conteúdo
       </a>
 
-      <aside className="sidebar">
-        <button type="button" className="brand" onClick={() => navigate('overview')} aria-label="LastChart início">
+      <aside className="sidebar" onKeyDown={event => { if (event.key === 'Escape') setSidebarExpanded(false); }}>
+        <button type="button" className="brand" onClick={() => setSidebarExpanded(value => !value)} aria-label={sidebarExpanded ? 'Recolher menu lateral' : 'Expandir menu lateral'} aria-expanded={sidebarExpanded} aria-controls="sidebar-navigation" title={sidebarExpanded ? 'Recolher menu lateral' : 'Expandir menu lateral'}>
           <span className="brand-mark">
             <img src="/favicon.svg" alt="" width="38" height="38" />
           </span>
-          <span>
+          <span className="brand-name">
             lastchart
             <span className="brand-sub">STUDIO PRO</span>
           </span>
+          <ChevronLeft className="sidebar-collapse-icon" size={17}/>
         </button>
 
         <span className="sidebar-caption">PLATAFORMA</span>
-        <nav aria-label="Navegação principal">
+        <nav id="sidebar-navigation" aria-label="Navegação principal">
           {nav.map(({ id, label, icon: Icon }) => (
             <button
               type="button"
@@ -609,6 +615,7 @@ function App() {
               className={`nav-link ${page === id ? 'active' : ''}`}
               onClick={() => navigate(id)}
               aria-current={page === id ? 'page' : undefined}
+              title={label}
             >
               <Icon size={20} active={page === id} />
               <span>{label}</span>
@@ -618,9 +625,9 @@ function App() {
         </nav>
 
         <div className="sidebar-bottom">
-          <button type="button" className="sidebar-live" onClick={() => quickOpen('live')}><Radio size={18}/><span>Live Charts<small>A próxima era já começou</small></span><i/></button>
-          <button type="button" className="sidebar-help" onClick={() => setShowWelcome(true)}><Sparkles size={16}/><span>Tour pelo LastChart</span></button>
-          <button type="button" className="sidebar-help" onClick={() => setHelp(true)}>
+          <button type="button" className="sidebar-live" title="Live Charts" onClick={() => quickOpen('live')}><Radio size={18}/><span>Live Charts<small>A próxima era já começou</small></span><i/></button>
+          <button type="button" className="sidebar-help" title="Tour pelo LastChart" onClick={() => setShowWelcome(true)}><Sparkles size={16}/><span>Tour pelo LastChart</span></button>
+          <button type="button" className="sidebar-help" title="Metodologia ZeroCharts" onClick={() => setHelp(true)}>
             <CircleHelp size={16} />
             <span>Metodologia ZeroCharts</span>
             <ArrowUpRight size={13} />
@@ -649,6 +656,7 @@ function App() {
           </button>
 
           <div className="topbar-actions">
+            <AccountEntry/>
             <span className={`connection ${online ? '' : 'offline'}`}>
               <i />
               <span>{online ? 'Online' : 'Offline'}</span>
@@ -1612,6 +1620,7 @@ function App() {
 
       {historyOpen && <HistoryExplorer weeks={closedWeeks} charts={charts} initialYear={year} selectedId={selected?.id} startDate={settings.startDate} computing={computing} progress={progress} error={error} onCancel={data.cancel} onSync={scope => void data.sync(scope)} onClose={() => setHistoryOpen(false)} onCalendar={() => {setHistoryOpen(false);navigate('settings');}} initialMode={page==='studio'?'period':'archive'} onChoose={week => {setYear(String(week.year));setWeekId(week.id);setHistoryOpen(false);navigate('charts');}} settings={settings} cached={cached} kind={kind} source={sourceFilter} onAnimate={result => {setStudioPeriod(result);setStudioSeed(undefined);setHistoryOpen(false);if(page!=='studio')navigate('studio');}} />}
 
+      <AchievementCelebration cached={cached} settings={settings} source={sourceFilter} onOpen={()=>setSpotlightTab('achievements')}/>
       {spotlightOpen&&<Suspense fallback={null}><Spotlight charts={charts} library={library} cached={cached} settings={settings} source={sourceFilter} reduced={reduced} owner={profile?.realname||profile?.name||settings.user} namespace={settings.user} initialYear={year} dark={dark} kind={kind} timezone={settings.timezone} initialTab={spotlightTab??'chart'} onClose={()=>setSpotlightOpen(false)} onDownload={value=>{setSpotlightOpen(false);void data.sync(value==='all'?'all':Number(value));}} onStudio={(ids,title,series,items,count)=>{
         try{const saved=JSON.parse(localStorage.getItem('lastchart-studio:studio')??'{}');localStorage.setItem('lastchart-studio:studio',JSON.stringify({...studioDefaults,...saved,chartName:title,top:count,barCount:Math.min(count,30),mode:count>30?'lines':saved.mode??'lines'}));}catch{/* optional preference */}
         setStudioPeriod({charts:series,library:items,unit:'week'});setStudioSeed(ids);setSpotlightOpen(false);navigate('studio');
@@ -2394,7 +2403,7 @@ function SettingsPage({
                 onChange={e => change('apiKey', e.target.value)}
                 placeholder="Usar chave configurada no servidor (Vercel / Netlify)"
               />
-              <small>Deixe em branco para usar o proxy do servidor. Chaves pessoais ficam restritas ao seu navegador.</small>
+              <small>Deixe em branco para usar o proxy do servidor. Sua chave fica neste aparelho e, ao conectar uma conta LastChart, também no seu backup privado.</small>
             </label>
 
             <label className="switch-row">
@@ -2674,6 +2683,7 @@ function SettingsPage({
           </div>
         </section>
 
+        <Suspense fallback={<Loading/>}><AccountPanel/></Suspense>
         <section className="panel">
           <div className="panel-heading">
             <div>
@@ -2708,7 +2718,7 @@ function SettingsPage({
           <ShieldCheck size={20} />
           <div>
             <strong>Independente e privado</strong>
-            <p>Seu histórico fica no navegador. Só sai dele o que você pedir: consultas ao Last.fm e ao catálogo, e — se ativar a sincronização — o projeto cifrado neste aparelho. Faça backup JSON antes de limpar o cache.</p>
+            <p>Seu histórico fica no navegador. Só sai dele o que você pedir: consultas ao Last.fm e ao catálogo, e — se ativar a sincronização — seu backup privado na conta ou o projeto cifrado no modo por chave. Faça backup JSON antes de limpar o cache.</p>
           </div>
         </div>
       </div>
