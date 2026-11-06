@@ -1,3 +1,4 @@
+import { requireAccount } from './server/auth.mjs';
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import { readdirSync, writeFileSync } from 'node:fs';
@@ -20,6 +21,11 @@ function mountApi(middlewares: Connect.Server, env: Record<string, string>) {
     return new Request(new URL(req.originalUrl ?? req.url ?? '/', 'http://localhost'), { method: req.method, body, headers: req.headers as Record<string, string> });
   };
   const send = async (res: import('node:http').ServerResponse, response: Response) => { res.statusCode = response.status; response.headers.forEach((value, key) => res.setHeader(key, value)); res.end(Buffer.from(await response.arrayBuffer())); };
+  middlewares.use('/api', async (req,res,next) => {
+    if ((req.originalUrl ?? '').split('?')[0] === '/api/push-cron') return next();
+    const failure=await requireAccount(new Request('http://localhost'+(req.originalUrl??'/'),{headers:req.headers as Record<string,string>}),env);
+    if(failure){await send(res,failure);return;} next();
+  });
   middlewares.use('/api/lastfm', async (req, res) => send(res, await lastfmProxy(new URL(req.url ?? '/', 'http://localhost').search, env.LASTFM_API_KEY)));
   middlewares.use('/api/itunes', async (req, res) => send(res, await itunesProxy(new URL(req.url ?? '/', 'http://localhost').search)));
   middlewares.use('/api/career', async (req, res) => send(res, await handleCareer(await toRequest(req))));
