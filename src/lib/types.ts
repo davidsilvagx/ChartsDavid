@@ -20,6 +20,7 @@ export interface Settings {
   apiKey: string;
   deduplicate: boolean;
   reducedMotion: boolean;
+  durationMode?: import('./duration').DurationMode;
   avatar?: string;
   aliases?: AliasRule[];
   spotifyClientId?: string;
@@ -114,6 +115,7 @@ export interface SyncProgress {
 }
 
 export interface StudioSettings {
+  gapMode?: 'keep' | 'accelerate' | 'compact' | 'skip';
   leaderAudio?: boolean;
   leaderAudioMode?: 'manual' | 'auto' | 'auto-manual';
   leaderVolume?: number;

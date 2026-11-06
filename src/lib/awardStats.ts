@@ -14,6 +14,7 @@ export function addPersonalAwardStats(stats: Record<Kind, Record<string, ItemSta
   for (const row of Object.values(stats.artists)) { row.top10Tracks = 0; row.trackWeeksAtOne = 0; row.weeksAtOne = 0; row.weeksTop10 = 0; }
   for (const row of Object.values(stats.tracks)) { row.weeksAtOne = 0; row.weeksTop10 = 0; }
   for (const week of [...calendar].sort((a, b) => a.start - b.start)) {
+    if (week.end > Date.now() / 1000) continue;
     const raw = cache.get(week.id);
     if (!raw) { missing++; previousTracks.clear(); previousArtists.clear(); continue; }
     const artists = new Map<string, number>(), tracks = new Map<string, number>(), owner = new Map<string, string>();

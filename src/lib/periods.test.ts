@@ -32,10 +32,11 @@ describe('Charts reais por dia, semana, mês e ano',()=>{
     expect(result.charts[0].label).toBe('01/01/26 — 01/01/26');
     expect(buildPeriodCharts(settings,cache([]),'tracks','all','week','2026-01-09','2026-01-15',now).charts[0].number).toBe(3);
   });
-  it('mantém o mês atual parcial e não confunde cache antigo com dia vazio',()=>{
+  it('exclui dias da semana aberta e limita o mês ao último fechamento',()=>{
     const today=Date.parse('2026-03-19T12:00Z');
     const data=cache([]).map(w=>w.week.id==='2026-03-13'?{...w,cutoff:Date.parse('2026-03-18T12:00Z')/1000}:w);
-    expect(buildPeriodCharts(settings,data,'tracks','all','day','2026-03-19','2026-03-19',today).charts[0].status).toBe('missing');
+    expect(() => buildPeriodCharts(settings,data,'tracks','all','day','2026-03-19','2026-03-19',today)).toThrow('Live Charts');
+    expect(buildPeriodCharts(settings,data,'tracks','all','month','2026-03-01','2026-03-19',today).charts[0].end).toBe(Date.parse('2026-03-13T00:00Z')/1000);
     expect(buildPeriodCharts(settings,data,'tracks','all','month','2026-03-01','2026-03-19',today).charts[0].partial).toBe(true);
   });
   it('respeita o fuso escolhido no chart diário',()=>{

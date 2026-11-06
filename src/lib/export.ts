@@ -33,7 +33,7 @@ export function parseBackup(text: string): { settings: Settings; weeks: CachedWe
   const avatar = typeof s.avatar === 'string' && /^[\w-]{1,40}$/.test(s.avatar) ? s.avatar : 'lastfm';
   const spotifyClientId = typeof s.spotifyClientId === 'string' ? s.spotifyClientId.slice(0, 120) : '';
   const googleClientId = typeof s.googleClientId === 'string' ? s.googleClientId.slice(0, 180) : '';
-  const settings: Settings = { ...defaults, user: s.user, startDate: s.startDate, timezone: s.timezone, theme: ['light','dark','system'].includes(s.theme) ? s.theme : 'system', deduplicate: s.deduplicate === true, reducedMotion: s.reducedMotion === true, apiKey: '', avatar, aliases, spotifyClientId, googleClientId };
+  const settings: Settings = { ...defaults, user: s.user, startDate: s.startDate, timezone: s.timezone, theme: ['light','dark','system'].includes(s.theme) ? s.theme : 'system', deduplicate: s.deduplicate === true, reducedMotion: s.reducedMotion === true, durationMode: s.durationMode === 'equivalent' ? 'equivalent' : 'weeks', apiKey: '', avatar, aliases, spotifyClientId, googleClientId };
   const canonical = new Map(makeWeeks(settings).map(w => [w.id, w]));
   const ids = new Set<string>();
   const weeks = data.weeks.map((w: CachedWeek) => {

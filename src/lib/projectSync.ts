@@ -1,15 +1,18 @@
-import { putMeta, readMetaRange } from './storage';
+import { importWeeks, putMeta, readMetaRange, readWeeks } from './storage';
+import { backupJSON, parseBackup } from './export';
+import { defaults, type CachedWeek, type Settings } from './types';
+import { scrobbleKey } from './charts';
 import type { ClipBank } from './leaderAudio';
 
 /**
  * Projeto = tudo que o usuário configurou e não pode ser baixado de novo do Last.fm:
  * ajustes (sem chave de API nem tokens), estúdio, favoritos, nomes de edição, épocas, cédulas de premiação,
  * preferências de notificação/comparação, revisões manuais de metadados e o mapa de trechos de áudio.
- * Scrobbles NÃO entram: o histórico local continua sendo a fonte recuperável (e pode ser rebaixado do Last.fm).
+ * Histórico incluído no arquivo; na nuvem vira arquivo comprimido cifrado em partes.
  */
-const LOCAL_KEYS = ['lastchart-studio:settings:v1', 'lastchart-studio:studio', 'lastchart-studio:favorites', 'lastchart-studio:source-filter:v1', 'lastchart-studio:view-mode'];
+const LOCAL_KEYS = ['lastchart-studio:settings:v1', 'lastchart-studio:studio', 'lastchart-studio:favorites', 'lastchart-studio:source-filter:v1', 'lastchart-studio:view-mode', 'lastchart-studio:quick-access'];
 const LOCAL_PREFIXES = ['spotlight-name:v1:', 'saved-eras:v1:', 'lastchart-awards:v1:', 'lastchart-notify:v1:', 'lastchart-compare:v1:'];
-const META_PREFIXES = ['meta-review:v1:'];
+const META_PREFIXES = ['meta-review:v1:', 'meta:v1:', 'artist-photo:v1:'];
 const SECRET_FIELDS = ['apiKey'];
 
 export interface ClipManifestEntry { hash: string; name: string; type: string; size: number; duration: number; origin?: 'manual' | 'auto'; matchedBy?: string }
@@ -17,6 +20,8 @@ export interface ProjectFile {
   app: 'LastChartStudioPro'; type: 'project'; version: 1; exportedAt: string; device: string;
   local: Record<string, string>; meta: Record<string, unknown>;
   audio: Record<string, Record<string, ClipManifestEntry>>;
+  history?: string;
+  historyArchive?: ClipManifestEntry;
 }
 
 export const deviceLabel = () => {
@@ -53,7 +58,12 @@ export async function collectProject(storage: Storage = localStorage): Promise<P
       audio[key] = entries;
     }
   } catch { /* IndexedDB indisponível: segue só com preferências locais. */ }
-  return { app: 'LastChartStudioPro', type: 'project', version: 1, exportedAt: new Date().toISOString(), device: deviceLabel(), local, meta, audio };
+  let history: string | undefined;
+  if (local['lastchart-studio:settings:v1']) {
+    const settings: Settings = { ...defaults, ...JSON.parse(local['lastchart-studio:settings:v1']), apiKey: '' };
+    history = backupJSON(settings, await readWeeks(settings), null);
+  }
+  return { app: 'LastChartStudioPro', type: 'project', version: 1, exportedAt: new Date().toISOString(), device: deviceLabel(), local, meta, audio, history };
 }
 
 export function parseProject(text: string): ProjectFile {
@@ -70,12 +80,38 @@ export function parseProject(text: string): ProjectFile {
     audio[key] = {};
     for (const [itemId, entry] of Object.entries(bank as Record<string, ClipManifestEntry>)) if (entry && /^[a-f0-9]{64}$/.test(entry.hash) && typeof entry.name === 'string') audio[key][itemId] = { ...entry, name: entry.name.slice(0, 200) };
   }
-  return { app: 'LastChartStudioPro', type: 'project', version: 1, exportedAt: String(data.exportedAt ?? ''), device: String(data.device ?? '').slice(0, 60), local, meta, audio };
+  const history = typeof data.history === 'string' ? data.history : undefined;
+  if (history) parseBackup(history);
+  const archive = data.historyArchive;
+  if (archive && (!/^[a-f0-9]{64}$/.test(archive.hash) || !Number.isSafeInteger(archive.size) || archive.size < 1 || archive.size > 64 * 1024 * 1024 || !['application/json', 'application/gzip'].includes(archive.type))) throw new Error('Arquivo de histórico inválido no projeto.');
+  return { app: 'LastChartStudioPro', type: 'project', version: 1, exportedAt: String(data.exportedAt ?? ''), device: String(data.device ?? '').slice(0, 60), local, meta, audio, history, historyArchive: archive };
+}
+
+/** Union with maximum multiplicity: preserve legitimate repeats without multiplying them on each sync. */
+export function mergeHistory(local: CachedWeek[], incoming: CachedWeek[]): CachedWeek[] {
+  const rows = new Map(local.map(w => [w.week.id, w]));
+  for (const next of incoming) {
+    const old = rows.get(next.week.id);
+    if (!old) { rows.set(next.week.id, next); continue; }
+    const left = new Map<string, number>(); for (const s of old.scrobbles) { const key = scrobbleKey(s); left.set(key, (left.get(key) ?? 0) + 1); }
+    const seen = new Map<string, number>(), extra = [];
+    for (const s of next.scrobbles) { const key = scrobbleKey(s), count = (seen.get(key) ?? 0) + 1; seen.set(key, count); if (count > (left.get(key) ?? 0)) extra.push(s); }
+    rows.set(next.week.id, { ...(old.fetchedAt > next.fetchedAt ? old : next), cutoff: Math.max(old.cutoff, next.cutoff), scrobbles: [...old.scrobbles, ...extra].sort((a, b) => a.timestamp - b.timestamp), lastfmSynced: old.lastfmSynced || next.lastfmSynced });
+  }
+  return [...rows.values()].sort((a, b) => a.week.start - b.week.start);
 }
 
 /** Aplica um projeto preservando o histórico local. Retorna quantas chaves mudaram. */
 export async function applyProject(project: ProjectFile, storage: Storage = localStorage) {
   let changed = 0;
+  // Validate and persist history before changing the visible profile/settings.
+  if (project.historyArchive && !project.history) throw new Error('O arquivo de histórico ainda não foi recebido. Tente novamente com internet.');
+  if (project.history) {
+    const backup = parseBackup(project.history);
+    const existing = await readWeeks(backup.settings);
+    await importWeeks(backup.settings, mergeHistory(existing, backup.weeks));
+    changed += backup.weeks.length;
+  }
   for (const [key, value] of Object.entries(project.local)) {
     if (key === 'lastchart-studio:settings:v1') {
       // A chave de API pessoal deste aparelho é mantida.
@@ -90,13 +126,23 @@ export async function applyProject(project: ProjectFile, storage: Storage = loca
 /** Diferenças por chave, para resolver conflitos sem apagar nada em silêncio. */
 export function diffProjects(local: ProjectFile, remote: ProjectFile) {
   const keys = new Set([...Object.keys(local.local), ...Object.keys(remote.local)]);
-  return [...keys].filter(key => local.local[key] !== remote.local[key]).map(key => ({ key, local: local.local[key], remote: remote.local[key] }));
+  const differences = [...keys].filter(key => local.local[key] !== remote.local[key]).map(key => ({ key, local: local.local[key], remote: remote.local[key] }));
+  const signature = (history?: string) => { if (!history) return ''; const parsed = parseBackup(history); return JSON.stringify({ user: parsed.settings.user, weeks: parsed.weeks }); };
+  if (signature(local.history) !== signature(remote.history)) differences.push({ key: 'history', local: 'Histórico deste aparelho', remote: 'Histórico da nuvem' });
+  if (JSON.stringify(local.meta) !== JSON.stringify(remote.meta)) differences.push({ key: 'metadata', local: 'Metadados locais', remote: 'Metadados da nuvem' });
+  return differences;
 }
 /** Mescla: mantém do aparelho tudo que difere e acrescenta o que só existe na nuvem. */
 export function mergeProjects(local: ProjectFile, remote: ProjectFile): ProjectFile {
   const audio: ProjectFile['audio'] = { ...remote.audio };
   for (const [key, bank] of Object.entries(local.audio)) audio[key] = { ...(remote.audio[key] ?? {}), ...bank };
-  return { ...local, local: { ...remote.local, ...local.local }, meta: { ...remote.meta, ...local.meta }, audio, exportedAt: new Date().toISOString() };
+  let history = local.history ?? remote.history;
+  if (local.history && remote.history) {
+    const left = parseBackup(local.history), right = parseBackup(remote.history);
+    if (left.settings.user.toLowerCase() !== right.settings.user.toLowerCase() || left.settings.startDate !== right.settings.startDate || left.settings.timezone !== right.settings.timezone) throw new Error('Os projetos usam perfis ou calendários diferentes. Escolha qual projeto deseja manter.');
+    history = backupJSON(left.settings, mergeHistory(left.weeks, right.weeks), null);
+  }
+  return { ...local, local: { ...remote.local, ...local.local }, meta: { ...remote.meta, ...local.meta }, audio, history, historyArchive: undefined, exportedAt: new Date().toISOString() };
 }
 
 // ——— Chave de sincronização e criptografia ponta a ponta ———
@@ -122,8 +168,8 @@ export async function deriveAccount(syncKey: string, iterations = 150_000): Prom
 }
 const b64 = (bytes: Uint8Array) => { let s = ''; for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000)); return btoa(s); };
 const unb64 = (text: string) => Uint8Array.from(atob(text), c => c.charCodeAt(0));
-export async function encryptBytes(key: CryptoKey, bytes: Uint8Array<ArrayBuffer>) {
-  const iv = crypto.getRandomValues(new Uint8Array(12));
+export async function encryptBytes(key: CryptoKey, bytes: Uint8Array<ArrayBuffer>, nonce?: Uint8Array<ArrayBuffer>) {
+  const iv = nonce ?? crypto.getRandomValues(new Uint8Array(12));
   const data = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, bytes));
   const out = new Uint8Array(12 + data.length); out.set(iv); out.set(data, 12); return out;
 }
@@ -135,10 +181,17 @@ export async function encryptProject(account: SyncAccount, project: ProjectFile)
   const sealed = await encryptBytes(account.key, new TextEncoder().encode(JSON.stringify(project)));
   return { iv: b64(sealed.subarray(0, 12)), data: b64(sealed.subarray(12)) };
 }
-export async function decryptProject(account: SyncAccount, payload: { iv: string; data: string }) {
+export async function decryptProject(account: SyncAccount, payload: { iv: string; data: string }, signal?: AbortSignal) {
   const iv = unb64(payload.iv), data = unb64(payload.data), joined = new Uint8Array(iv.length + data.length);
   joined.set(iv); joined.set(data, iv.length);
-  return parseProject(new TextDecoder().decode(await decryptBytes(account.key, joined)));
+  const project = parseProject(new TextDecoder().decode(await decryptBytes(account.key, joined)));
+  if (project.historyArchive && !project.history) {
+    const file = await downloadClip(account, project.historyArchive, signal ?? new AbortController().signal);
+    if (!file) throw new Error('O backup do histórico não foi encontrado na nuvem. Nenhum dado local foi alterado.');
+    project.history = project.historyArchive.type === 'application/gzip' ? await new Response(file.stream().pipeThrough(new DecompressionStream('gzip'))).text() : await file.text();
+    parseBackup(project.history);
+  }
+  return project;
 }
 
 // ——— Cliente remoto ———
@@ -156,7 +209,18 @@ export async function fetchRemote(account: SyncAccount, signal?: AbortSignal): P
   return response.json();
 }
 export async function pushRemote(account: SyncAccount, baseRevision: number, project: ProjectFile, signal?: AbortSignal) {
-  const response = await fetch(endpoint(account.id), { method: 'PUT', signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ baseRevision, device: project.device, payload: await encryptProject(account, project) }) });
+  let remoteProject = project;
+  if (project.history) {
+    // Export timestamps must not create a new immutable archive on every unchanged backup.
+    const stable = JSON.parse(project.history); delete stable.exportedAt;
+    const raw = new Blob([JSON.stringify(stable)], { type: 'application/json' });
+    const compressed = typeof CompressionStream !== 'undefined' ? await new Response(raw.stream().pipeThrough(new CompressionStream('gzip'))).blob() : raw;
+    const type = typeof CompressionStream !== 'undefined' ? 'application/gzip' : 'application/json';
+    const hash = await sha256Hex(await compressed.arrayBuffer());
+    await uploadClip(account, hash, compressed, () => {}, signal ?? new AbortController().signal);
+    remoteProject = { ...project, history: undefined, historyArchive: { hash, name: 'lastchart-historico', type, size: compressed.size, duration: 0 } };
+  }
+  const response = await fetch(endpoint(account.id), { method: 'PUT', signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ baseRevision, device: project.device, payload: await encryptProject(account, remoteProject) }) });
   if (!response.ok) return failure(response);
   return response.json() as Promise<{ revision: number; updatedAt: number }>;
 }
@@ -168,11 +232,16 @@ export async function deleteRemote(account: SyncAccount) {
 const CHUNK = 3_000_000;
 /** Envia um trecho cifrado em partes de 3 MB, com progresso e cancelamento. Partes já enviadas são puladas. */
 export async function uploadClip(account: SyncAccount, hash: string, file: Blob, onProgress: (sent: number, total: number) => void, signal: AbortSignal) {
-  const sealed = await encryptBytes(account.key, new Uint8Array(await file.arrayBuffer()));
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  if (await sha256Hex(bytes) !== hash) throw new Error('O arquivo mudou durante o envio. Tente novamente.');
+  const storageHash = await sha256Hex(`lastchart-blob-v2:${account.id}:${hash}`);
+  // Immutable content addressed files use a stable nonce so resumed parts belong to the same ciphertext.
+  const nonce = new Uint8Array((await crypto.subtle.digest('SHA-256', new TextEncoder().encode(storageHash))).slice(0, 12));
+  const sealed = await encryptBytes(account.key, bytes, nonce);
   const parts = Math.ceil(sealed.length / CHUNK);
   for (let n = 0; n < parts; n++) {
     signal.throwIfAborted();
-    const name = `${hash}.${n}`;
+    const name = `${storageHash}.${n}`;
     const head = await fetch(endpoint(account.id, `&blob=${name}`), { method: 'HEAD', signal });
     if (head.ok) { onProgress(Math.min(sealed.length, (n + 1) * CHUNK), sealed.length); continue; }
     await new Promise<void>((resolve, reject) => {
@@ -191,8 +260,10 @@ export async function uploadClip(account: SyncAccount, hash: string, file: Blob,
 }
 export async function downloadClip(account: SyncAccount, entry: ClipManifestEntry, signal: AbortSignal) {
   const total = Math.ceil((entry.size + 28) / CHUNK), parts: Uint8Array[] = [];
+  let storageHash = await sha256Hex(`lastchart-blob-v2:${account.id}:${entry.hash}`);
   for (let n = 0; n < total; n++) {
-    const response = await fetch(endpoint(account.id, `&blob=${entry.hash}.${n}`), { signal });
+    let response = await fetch(endpoint(account.id, `&blob=${storageHash}.${n}`), { signal });
+    if (n === 0 && response.status === 404) { storageHash = entry.hash; response = await fetch(endpoint(account.id, `&blob=${storageHash}.${n}`), { signal }); }
     if (!response.ok) return null;
     parts.push(new Uint8Array(await response.arrayBuffer()));
   }

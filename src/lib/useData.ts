@@ -14,6 +14,7 @@ import {
 import { formatDateTimeBR, makeWeeks, namespace } from './calendar';
 import { getMeta, readWeeks } from './storage';
 import { synchronize } from './sync';
+import { closedCache } from './closedWeeks';
 import {
   completeSpotifyCallbackIfPresent,
   completeYouTubeCallbackIfPresent,
@@ -52,6 +53,7 @@ export function useData(kind: Kind) {
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>(readInitialSourceFilter);
   const [cached, setCached] = useState<CachedWeek[]>([]);
   const [charts, setCharts] = useState<ChartWeek[]>([]);
+  const [liveChart, setLiveChart] = useState<ChartWeek | null>(null);
   const [library, setLibrary] = useState<Item[]>([]);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [progress, setProgress] = useState<SyncProgress | null>(null);
@@ -65,7 +67,15 @@ export function useData(kind: Kind) {
   const workerReqId = useRef(0);
 
   const weeks = useMemo(() => makeWeeks(settings), [settings.startDate, settings.timezone, revision]);
-  const sourceCounts = useMemo(() => countScrobblesBySource(cached), [cached]);
+  const consolidated = useMemo(() => closedCache(weeks, cached), [weeks, cached]);
+  const sourceCounts = useMemo(() => countScrobblesBySource(consolidated), [consolidated]);
+  // Roll over at the exact boundary even when the app stays open overnight.
+  useEffect(() => {
+    const boundary = weeks.find(w => w.partial)?.end;
+    if (!boundary) return;
+    const timer = setTimeout(() => setRevision(v => v + 1), Math.min(2_147_483_647, Math.max(1000, boundary * 1000 - Date.now() + 100)));
+    return () => clearTimeout(timer);
+  }, [weeks]);
 
   useEffect(() => {
     try {
@@ -120,6 +130,7 @@ export function useData(kind: Kind) {
       setCached([]);
       setProfile(null);
       setCharts([]);
+      setLiveChart(null);
       setLibrary([]);
     }
     Promise.all([readWeeks(settings), getMeta<Profile>(`profile:${settings.user.toLowerCase()}`)])
@@ -149,6 +160,7 @@ export function useData(kind: Kind) {
       if (data.error) setError(data.error);
       else {
         setCharts(data.charts);
+        setLiveChart(data.liveChart);
         setLibrary(data.library);
       }
       setComputing(false);
@@ -245,7 +257,9 @@ export function useData(kind: Kind) {
     sourceFilter,
     setSourceFilter,
     sourceCounts,
-    cached,
+    cached: consolidated,
+    allCached: cached,
+    liveChart,
     charts,
     library,
     profile,

@@ -32,7 +32,7 @@ export function inQuietHours(prefs: Pick<NotificationPrefs, 'quietStart' | 'quie
 
 /** Marcos derivados só das semanas baixadas; semanas ausentes não geram eventos. */
 export function detectMilestones(charts: ChartWeek[], now: number, timeZone: string): Milestone[] {
-  const loaded = charts.filter(chart => chart.status === 'loaded');
+  const loaded = charts.filter(chart => chart.status === 'loaded' && chart.end <= now / 1000);
   const latest = loaded.at(-1);
   if (!latest) return [];
   const events: Milestone[] = [];

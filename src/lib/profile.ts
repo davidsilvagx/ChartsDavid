@@ -8,9 +8,9 @@ import type { CachedWeek, SourceFilter } from './types';
  * 16 combinações e selos extras. Inspirado em sistemas de “personalidade de audição”, sem copiar nomes.
  */
 export const AXES = {
-  orbit: { high: 'F', low: 'X', highLabel: 'Fidelidade', lowLabel: 'Exploração', threshold: 0.4, metric: 'Fatia das reproduções vinda dos 5 artistas mais ouvidos' },
+  orbit: { high: 'F', low: 'X', highLabel: 'Fiel ao fandom', lowLabel: 'Bora descobrir', threshold: 0.4, metric: 'Fatia das reproduções vinda dos 5 artistas mais ouvidos' },
   era: { high: 'N', low: 'T', highLabel: 'Novidades', lowLabel: 'Clássicos pessoais', threshold: 0.5, metric: 'Reproduções feitas até 90 dias depois da primeira vez que você ouviu a faixa' },
-  loop: { high: 'R', low: 'V', highLabel: 'Repetição', lowLabel: 'Rotação', threshold: 0.3, metric: 'Reproduções que repetem uma faixa já ouvida no mesmo dia' },
+  loop: { high: 'R', low: 'V', highLabel: 'Replay sem culpa', lowLabel: 'Sempre trocando', threshold: 0.3, metric: 'Reproduções que repetem uma faixa já ouvida no mesmo dia' },
   flow: { high: 'A', low: 'S', highLabel: 'Álbum inteiro', lowLabel: 'Faixas soltas', threshold: 0.45, metric: 'Trocas para outra faixa que continuam no mesmo álbum (intervalo de até 20 min)' },
 } as const;
 export type AxisId = keyof typeof AXES;
@@ -22,12 +22,12 @@ export const PERSONAS: Record<string, { name: string; tagline: string }> = {
   FNVS: { name: 'Radar dos Favoritos', tagline: 'Acompanha toda faixa nova de quem você ama, sem ficar preso a uma só.' },
   FTRA: { name: 'Guardião do Clássico', tagline: 'Volta aos discos que marcaram a sua história, de novo e de novo.' },
   FTRS: { name: 'Coração em Loop', tagline: 'As mesmas faixas queridas, repetidas com carinho.' },
-  FTVA: { name: 'Arquivista Afetivo', tagline: 'Revisita discografias conhecidas por inteiro, como quem relê um livro.' },
+  FTVA: { name: 'Diva das Eras', tagline: 'Revisita discografias conhecidas por inteiro, como quem relê um livro.' },
   FTVS: { name: 'Memória Viva', tagline: 'Passeia pelas faixas antigas dos artistas de sempre.' },
   XNRA: { name: 'Caçador de Estreias', tagline: 'Descobre álbuns novos e mergulha neles até decorar.' },
   XNRS: { name: 'Detector de Hits', tagline: 'Encontra a faixa nova antes de todo mundo e não larga mais.' },
   XNVA: { name: 'Explorador de Discos', tagline: 'Um álbum novo atrás do outro, de artistas bem diferentes.' },
-  XNVS: { name: 'Curador Nômade', tagline: 'Sua playlist é um mapa de descobertas sempre em movimento.' },
+  XNVS: { name: 'Diva Sem Fronteiras', tagline: 'Sua playlist é um mapa de descobertas sempre em movimento.' },
   XTRA: { name: 'Viajante do Tempo', tagline: 'Muitos artistas, discos de outras épocas no repeat.' },
   XTRS: { name: 'Jukebox Humana', tagline: 'Variedade enorme de artistas e hinos que voltam sempre.' },
   XTVA: { name: 'Enciclopédia Musical', tagline: 'Percorre catálogos amplos e antigos por inteiro.' },
@@ -68,6 +68,7 @@ export function computeProfile(cached: CachedWeek[], options: { start: number; e
   const firstHeard = new Map<string, number>();
   const inRange: Array<{ ts: number; artist: string; track: string; album: string; key: string }> = [];
   for (const week of cached) {
+    if (week.week.end > Date.now() / 1000) continue;
     for (const s of selectScrobblesForFilter(week.scrobbles, options.deduplicate, source, week.week.start, week.week.end)) {
       const key = `${normalize(s.artist)}\u0000${normalize(s.track)}`;
       const seen = firstHeard.get(key);

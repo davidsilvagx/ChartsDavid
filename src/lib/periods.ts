@@ -1,6 +1,7 @@
 import { Temporal } from '@js-temporal/polyfill';
 import { buildCharts, getLibrary } from './charts';
 import { formatDateBR, makeWeeks } from './calendar';
+import { closedCache } from './closedWeeks';
 import type { CachedWeek, Kind, Settings, SourceFilter, Week } from './types';
 
 export type PeriodUnit = 'day' | 'week' | 'month' | 'year';
@@ -16,14 +17,16 @@ export function buildPeriodCharts(settings: Settings, cached: CachedWeek[], kind
   if (unit === 'day' && first.until(last).days >= 366) throw new Error('Para charts diários, escolha até 366 dias por vez. Você pode consultar qualquer ano; para animar todos os anos juntos, use semanas, meses ou anos.');
   const epoch = (date: Temporal.PlainDate) => Number(date.toZonedDateTime(settings.timezone).epochMilliseconds) / 1000;
   const rangeStart = epoch(first);
-  const rangeEnd = Math.min(epoch(last.add({ days: 1 })), Math.floor(now / 1000));
-  if (rangeEnd <= rangeStart) throw new Error('Este dia acabou de começar. Aguarde as primeiras reproduções antes de gerar seu chart.');
-  const calendarWeeks = makeWeeks(settings, now);
-  const byId = new Map(cached.map(w => [w.week.id, w]));
+  const closedCalendar = makeWeeks(settings, now).filter(w => !w.partial);
+  const rangeEnd = Math.min(epoch(last.add({ days: 1 })), closedCalendar.at(-1)?.end ?? 0);
+  if (rangeEnd <= rangeStart) throw new Error('Este intervalo pertence a uma semana em andamento. Acompanhe os dados provisórios no Live Charts.');
+  const calendarWeeks = closedCalendar;
+  const byId = new Map(closedCache(closedCalendar, cached, now).map(w => [w.week.id, w]));
   const periods: Week[] = [];
   let date = unit === 'year' ? first.with({month:1,day:1}) : unit === 'month' ? first.with({day:1}) : first;
   const steps = unit === 'week' ? calendarWeeks.filter(w => w.end > rangeStart && w.start < rangeEnd) : null;
   while (steps ? periods.length < steps.length : Temporal.PlainDate.compare(date, last) <= 0) {
+    if (!steps && epoch(date) >= rangeEnd) break;
     const index = periods.length;
     const next = unit === 'year' ? date.add({years:1}) : unit === 'month' ? date.add({months:1}) : date.add({days:1});
     const rawStart = steps ? steps[index].start : epoch(date);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { handlePush, inQuiet, memoryPushStore, planPush, subscriptionId, validateSubscription, weekStart } from '../../server/push.mjs';
+import { handlePush, inQuiet, lastClosedWeek, memoryPushStore, planPush, subscriptionId, validateSubscription, weekStart } from '../../server/push.mjs';
 
 const sub = { endpoint: 'https://fcm.googleapis.com/fcm/send/abc', keys: { p256dh: 'p', auth: 'a' } };
 describe('Notificações com o app fechado', () => {
@@ -24,11 +24,16 @@ describe('Notificações com o app fechado', () => {
     r = planPush(r.state, w('2026-10-30', 70, 'B'), {});
     expect(r.notifications).toHaveLength(0);
     r = planPush(r.state, w('2026-11-06', 10, 'C'), {});
-    expect(r.notifications[0].title).toMatch(/Começou a semana com C/);
+    expect(r.notifications[0].title).toMatch(/Semana fechada com C/);
     expect(r.state.bestWeek).toBe(70);
     r = planPush(r.state, w('2026-11-06', 90, 'C'), {});
     expect(r.notifications.map(n => n.tag)).toEqual(['rec:2026-11-06']);
     expect(planPush(r.state, w('2026-11-06', 95, 'D'), { types: { 'number-one': false, record: false } }).notifications).toEqual([]);
+  });
+  it('mantém a semana aberta fora dos avisos e respeita o fechamento no fuso', () => {
+    expect(lastClosedWeek(Date.parse('2026-11-06T02:00Z'), 'America/Sao_Paulo').id).toBe('2026-10-23');
+    expect(lastClosedWeek(Date.parse('2026-11-06T03:00Z'), 'America/Sao_Paulo').id).toBe('2026-10-30');
+    expect(planPush({}, { id: '2026-11-06', partial: true, plays: 99 }, {}).notifications).toEqual([]);
   });
   it('rotas: sem configuração 503; assinar, atualizar e cancelar; cron exige segredo', async () => {
     const store = memoryPushStore();

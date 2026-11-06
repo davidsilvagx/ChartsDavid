@@ -13,6 +13,7 @@ export function coverage(cached: CachedWeek[], start: number, end: number) {
   const span = Math.max(1, end - start);
   let covered = 0, weeks = 0;
   for (const week of cached) {
+    if (week.week.end > Date.now() / 1000) continue;
     const from = Math.max(start, week.week.start), to = Math.min(end, week.cutoff, week.week.end);
     if (to > from) { covered += to - from; weeks++; }
   }
@@ -23,6 +24,7 @@ function aggregate(cached: CachedWeek[], kind: Kind, start: number, end: number,
   const map = new Map<string, Item>();
   let plays = 0;
   for (const week of cached) {
+    if (week.week.end > Date.now() / 1000) continue;
     if (week.week.end <= start || week.week.start >= end) continue;
     for (const s of selectScrobblesForFilter(week.scrobbles, deduplicate, source, start, end)) {
       // Sem aliases: a identidade é a mesma para os dois perfis (artista + título + álbum normalizados).
@@ -82,7 +84,7 @@ export function compareGroup(members: GroupMember[], options: { kind: Kind; star
   const data = list.map(m => {
     const agg = aggregate(m.cached, options.kind, options.start, options.end, source, dedupe);
     const first = new Map<string, number>();
-    for (const week of m.cached) for (const s of selectScrobblesForFilter(week.scrobbles, dedupe, source, week.week.start, week.week.end)) {
+    for (const week of m.cached.filter(w => w.week.end <= Date.now() / 1000)) for (const s of selectScrobblesForFilter(week.scrobbles, dedupe, source, week.week.start, week.week.end)) {
       const base = itemOf(s, options.kind); if (!base) continue;
       const seen = first.get(base.id); if (seen === undefined || s.timestamp < seen) first.set(base.id, s.timestamp);
     }
