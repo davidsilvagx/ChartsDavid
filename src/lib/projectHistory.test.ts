@@ -1,6 +1,6 @@
 import 'fake-indexeddb/auto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { applyProject, decryptProject, deriveAccount, fetchRemote, generateSyncKey, mergeHistory, parseProject, pushRemote, sha256Hex, uploadClip, downloadClip, type ProjectFile } from './projectSync';
+import { applyProject, checkAndPullNewer, decryptProject, deriveAccount, fetchRemote, generateSyncKey, mergeHistory, parseProject, pullRemoteProject, pushRemote, sha256Hex, uploadClip, downloadClip, type ProjectFile } from './projectSync';
 import { backupJSON } from './export';
 import { defaults, type CachedWeek } from './types';
 import { makeWeeks } from './calendar';
@@ -61,5 +61,33 @@ describe('History across devices', () => {
     await uploadClip(account, hash, file, () => {}, signal);
     const restored = await downloadClip(account, { hash, name: 'history.json', type: 'application/json', size: bytes.length, duration: 0 }, signal);
     expect(await sha256Hex(await restored!.arrayBuffer())).toBe(hash);
+  });
+  it('supports direct pull and auto-pull for seamless cross-device synchronization', async () => {
+    mockCloud();
+    const rawKey = generateSyncKey(n => new Uint8Array(n).fill(5));
+    const account = await deriveAccount(rawKey, 1000);
+    await pushRemote(account, 0, project());
+
+    const memoryStorage = new Map<string, string>();
+    const fakeLocalStorage = {
+      getItem: (k: string) => memoryStorage.get(k) ?? null,
+      setItem: (k: string, v: string) => memoryStorage.set(k, v),
+      removeItem: (k: string) => memoryStorage.delete(k),
+    } as unknown as Storage;
+    vi.stubGlobal('localStorage', fakeLocalStorage);
+
+    const pullRes = await pullRemoteProject(rawKey, undefined, 1000);
+    expect(pullRes.revision).toBe(1);
+    expect(pullRes.changed).toBeGreaterThan(0);
+    expect(fakeLocalStorage.getItem('lastchart-sync:v1')).toContain(rawKey.replace(/[\s-]/g, '').slice(0, 4));
+
+    const check1 = await checkAndPullNewer(fakeLocalStorage, undefined, 1000);
+    expect(check1).toBeNull();
+
+    await pushRemote(account, 1, { ...project(), local: { 'lastchart-studio:favorites': '["123"]' } });
+    const check2 = await checkAndPullNewer(fakeLocalStorage, undefined, 1000);
+    expect(check2?.updated).toBe(true);
+    expect(check2?.revision).toBe(2);
+    expect(fakeLocalStorage.getItem('lastchart-studio:favorites')).toBe('["123"]');
   });
 });

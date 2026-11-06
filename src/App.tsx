@@ -105,6 +105,7 @@ import { Duration, DurationContext } from './components/Duration';
 import { formatWeeks } from './lib/duration';
 import { QuickAccess, type QuickTarget } from './components/QuickAccess';
 import { LiveCharts } from './components/LiveCharts';
+import { checkAndPullNewer, pullRemoteProject } from './lib/projectSync';
 import './styles.css';
 
 type Page = 'overview' | 'charts' | 'studio' | 'extras' | 'library' | 'settings';
@@ -288,6 +289,36 @@ function App() {
 
   useEffect(() => { setStudioPeriod(null); }, [kind, sourceFilter, settings.user, settings.startDate, settings.timezone, cached]);
   useEffect(() => { if (new URLSearchParams(location.search).has('convite')) history.replaceState(null, '', location.pathname); }, []);
+
+  // Sincronização via link ou QR Code: ?sync=CHAVE (conecta direto sem digitar chave)
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const syncKey = params.get('sync');
+    if (syncKey) {
+      history.replaceState(null, '', location.pathname);
+      data.setNotice('Conectando e baixando seus charts da nuvem…');
+      void pullRemoteProject(syncKey)
+        .then(({ changed }) => {
+          completeWelcome();
+          data.setNotice(`Backstage sincronizado! ${changed} semanas e preferências aplicadas.`);
+          setTimeout(() => window.location.reload(), 1100);
+        })
+        .catch(err => {
+          data.setError(err instanceof Error ? err.message : 'Falha ao sincronizar via link.');
+        });
+    }
+  }, []);
+
+  // Verificação automática de atualizações na nuvem ao abrir o aplicativo
+  useEffect(() => {
+    void checkAndPullNewer().then(res => {
+      if (res?.updated) {
+        data.setNotice(`Seus charts foram atualizados com a versão mais recente da nuvem (revisão ${res.revision}).`);
+        setTimeout(() => window.location.reload(), 1400);
+      }
+    });
+  }, []);
+
   // Depois de trocar de perfil pelo tutorial, começa o download do histórico desse perfil.
   useEffect(() => { if (!syncAfterSwitch) return; const t = setTimeout(() => { setSyncAfterSwitch(false); void data.sync('all'); }, 500); return () => clearTimeout(t); }, [settings.user, syncAfterSwitch]);
 

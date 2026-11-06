@@ -1,25 +1,21 @@
 import { useEffect, useRef, useState } from 'react';
-import { CloudDownload, CloudUpload, Copy, FileDown, FileUp, KeyRound, LogOut, ShieldCheck, Square, Trash2 } from 'lucide-react';
-import { applyProject, collectProject, decryptProject, deleteRemote, deriveAccount, diffProjects, downloadClip, fetchRemote, generateSyncKey, mergeProjects, normalizeSyncKey, parseProject, pushRemote, sha256Hex, SyncError, uploadClip, type ProjectFile, type SyncAccount } from '../lib/projectSync';
+import { CloudDownload, CloudUpload, Copy, FileDown, FileUp, KeyRound, Link2, LogOut, QrCode, ShieldCheck, Square, Trash2 } from 'lucide-react';
+import { applyProject, collectProject, decryptProject, deleteRemote, deriveAccount, diffProjects, downloadClip, fetchRemote, generateSyncKey, mergeProjects, normalizeSyncKey, parseProject, pushRemote, readSyncState, sha256Hex, SyncError, uploadClip, writeSyncState, type ProjectFile, type SyncAccount, type SyncState } from '../lib/projectSync';
 import { getMeta, putMeta } from '../lib/storage';
 import type { ClipBank } from '../lib/leaderAudio';
 import { download } from '../lib/export';
 import { formatDateTimeBR } from '../lib/calendar';
 import { MusicLoader } from './UI';
 
-const STATE_KEY = 'lastchart-sync:v1';
-interface SyncState { key: string; revision: number; lastSync: number; includeAudio: boolean; pending: boolean }
-const readState = (): SyncState | null => { try { const v = JSON.parse(localStorage.getItem(STATE_KEY) ?? 'null'); return v?.key ? v : null; } catch { return null; } };
-const writeState = (v: SyncState | null) => { try { if (v) localStorage.setItem(STATE_KEY, JSON.stringify(v)); else localStorage.removeItem(STATE_KEY); } catch { /* sem armazenamento */ } };
-
 /** F01: projeto cifrado no aparelho; servidor só guarda bytes ilegíveis. Arquivo de projeto como alternativa. */
 export function DeviceSync({ timezone, onError, onNotice }: { timezone: string; onError: (s: string) => void; onNotice: (s: string) => void }) {
-  const [state, setState] = useState<SyncState | null>(readState);
+  const [state, setState] = useState<SyncState | null>(readSyncState);
   const [draftKey, setDraftKey] = useState(''), [newKey, setNewKey] = useState(''), [busy, setBusy] = useState(''), [progress, setProgress] = useState<{ sent: number; total: number } | null>(null);
+  const [showQR, setShowQR] = useState(false);
   const [remoteInfo, setRemoteInfo] = useState<{ device: string; updatedAt: number; usage: number; quota: number } | null>(null), [unavailable, setUnavailable] = useState('');
   const [conflict, setConflict] = useState<{ remote: ProjectFile; revision: number; local: ProjectFile; changes: number } | null>(null);
   const controller = useRef<AbortController | null>(null);
-  const update = (next: SyncState | null) => { setState(next); writeState(next); };
+  const update = (next: SyncState | null) => { setState(next); writeSyncState(next); };
   useEffect(() => () => controller.current?.abort(), []);
 
   const derived = useRef<{ key: string; account: Promise<SyncAccount> } | null>(null);
@@ -143,6 +139,23 @@ export function DeviceSync({ timezone, onError, onNotice }: { timezone: string; 
     </div> : <div className="sync-active">
       <div className="sync-meta"><strong>Chave ativa ····{state.key.slice(-4)}</strong><small>{state.lastSync ? `Última sincronização ${formatDateTimeBR(state.lastSync, timezone)} · revisão ${state.revision}` : 'Ainda não sincronizado neste aparelho'}{state.pending ? ' · envio pendente' : ''}</small>
         {remoteInfo && <small>Na nuvem: {remoteInfo.device || 'aparelho'} · {formatDateTimeBR(remoteInfo.updatedAt, timezone)} · áudio {(remoteInfo.usage / 1048576).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} de {Math.round(remoteInfo.quota / 1048576)} MB</small>}</div>
+      
+      <div className="inline-actions" style={{ marginBottom: 12 }}>
+        <button type="button" className="button small" onClick={() => {
+          const syncUrl = `${window.location.origin}/?sync=${state.key}`;
+          void navigator.clipboard?.writeText(syncUrl).then(() => onNotice('Link copiado! Abra no tablet ou celular para sincronizar na hora.')).catch(() => onError('Copie a chave manualmente.'));
+        }}><Link2 size={14} /><span>Copiar link para outro aparelho</span></button>
+        <button type="button" className="button small" onClick={() => setShowQR(v => !v)}><QrCode size={14} /><span>{showQR ? 'Ocultar QR Code' : 'QR Code para tablet/celular'}</span></button>
+      </div>
+
+      {showQR && (
+        <div className="sync-qr-box" style={{ display: 'grid', justifyItems: 'center', gap: 10, padding: 18, background: 'var(--surface-alt)', borderRadius: 18, margin: '12px 0', border: '1px solid var(--line)' }}>
+          <img src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&margin=8&data=${encodeURIComponent(`${window.location.origin}/?sync=${state.key}`)}`} alt="QR Code de sincronização" width="200" height="200" style={{ borderRadius: 14, background: 'white', padding: 8, boxShadow: '0 4px 16px rgba(0,0,0,0.12)' }} />
+          <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text)', textAlign: 'center', fontWeight: 600 }}>Aponte a câmera do seu celular ou tablet para abrir e sincronizar automaticamente.</p>
+          <small style={{ color: 'var(--muted)', textAlign: 'center' }}>Não precisa digitar a chave: seus charts e preferências abrem prontinhos no novo aparelho.</small>
+        </div>
+      )}
+
       <label className="switch-row"><span>Incluir trechos de áudio<small>Envia seus arquivos de trilha cifrados (até 64 MB por chave). Pode gastar dados móveis.</small></span><input type="checkbox" role="switch" checked={state.includeAudio} onChange={e => update({ ...state, includeAudio: e.target.checked })} /></label>
       {busy ? <div className="catalog-progress" role="status"><MusicLoader size="sm" /><span>{busy}{progress ? ` ${Math.round(progress.sent / Math.max(1, progress.total) * 100)}%` : ''}</span>{progress && <progress max={progress.total || 1} value={progress.sent} />}<button type="button" className="button small" onClick={() => controller.current?.abort()}><Square size={13} /><span>Cancelar</span></button></div>
         : <div className="inline-actions"><button type="button" className="button primary" onClick={() => void push()}><CloudUpload size={16} /><span>Enviar deste aparelho</span></button><button type="button" className="button" onClick={() => void pull()}><CloudDownload size={16} /><span>Receber da nuvem</span></button></div>}

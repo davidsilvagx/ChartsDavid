@@ -52,11 +52,16 @@ let base = toHex(BG.dark);
 const overlays: Array<(base: string) => string> = [];
 function apply() {
   if (typeof document === 'undefined') return;
+  const isLight = document.documentElement.dataset.theme === 'light';
   const top = overlays.length ? overlays[overlays.length - 1](base) : base;
   document.documentElement.style.setProperty('--chrome', base);
   document.documentElement.style.setProperty('--system-chrome', top);
-  document.documentElement.style.colorScheme = document.documentElement.dataset.theme === 'light' ? 'light' : 'dark';
+  document.documentElement.style.colorScheme = isLight ? 'light' : 'dark';
   document.querySelectorAll('meta[name="theme-color"]').forEach(meta => meta.setAttribute('content', top));
+  const appleBar = document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]');
+  if (appleBar) {
+    appleBar.setAttribute('content', isLight ? 'default' : 'black-translucent');
+  }
 }
 export function setChromeBase(color: string) { base = color; apply(); }
 /** Janela aberta: o topo mostra o fundo escurecido do diálogo (::backdrop rgba(4,8,15,.72)). */

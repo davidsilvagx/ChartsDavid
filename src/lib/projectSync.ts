@@ -272,3 +272,38 @@ export async function downloadClip(account: SyncAccount, entry: ClipManifestEntr
   if (await sha256Hex(bytes) !== entry.hash) throw new Error('Trecho recebido não confere com o original.');
   return new File([bytes], entry.name, { type: entry.type || 'audio/mpeg' });
 }
+
+export const STATE_KEY = 'lastchart-sync:v1';
+export interface SyncState { key: string; revision: number; lastSync: number; includeAudio: boolean; pending: boolean }
+export const readSyncState = (): SyncState | null => { try { const v = JSON.parse(localStorage.getItem(STATE_KEY) ?? 'null'); return v?.key ? v : null; } catch { return null; } };
+export const writeSyncState = (v: SyncState | null) => { try { if (v) localStorage.setItem(STATE_KEY, JSON.stringify(v)); else localStorage.removeItem(STATE_KEY); } catch { /* sem armazenamento */ } };
+
+/** Conecta uma chave recebida (ex: link, QR Code ou manual), baixa o projeto e aplica no aparelho */
+export async function pullRemoteProject(key: string, signal?: AbortSignal, iterations = 150_000) {
+  const normKey = normalizeSyncKey(key);
+  const acc = await deriveAccount(normKey, iterations);
+  const remote = await fetchRemote(acc, signal);
+  if (!remote) throw new SyncError('Ainda não há dados na nuvem para esta chave. Toque em Enviar no primeiro aparelho.', 'not-found');
+  const project = await decryptProject(acc, remote.payload, signal);
+  const changed = await applyProject(project);
+  writeSyncState({ key: normKey, revision: remote.revision, lastSync: Date.now(), includeAudio: false, pending: false });
+  return { project, revision: remote.revision, changed };
+}
+
+/** Verifica em segundo plano se outro aparelho salvou uma revisão mais recente e atualiza silenciosamente */
+export async function checkAndPullNewer(storage: Storage = localStorage, signal?: AbortSignal, iterations = 150_000) {
+  const state = readSyncState();
+  if (!state?.key) return null;
+  try {
+    const acc = await deriveAccount(state.key, iterations);
+    const remote = await fetchRemote(acc, signal);
+    if (remote && remote.revision > state.revision) {
+      const project = await decryptProject(acc, remote.payload, signal);
+      const changed = await applyProject(project, storage);
+      writeSyncState({ ...state, revision: remote.revision, lastSync: Date.now(), pending: false });
+      return { updated: true, revision: remote.revision, changed };
+    }
+  } catch { /* offline ou sem rede */ }
+  return null;
+}
+

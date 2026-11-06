@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, Check, ExternalLink, Link2, Music2, Share2, UserRound, Trophy, Radio, Film, Cloud, Sparkles } from 'lucide-react';
 import { ApiError, getProfile } from '../lib/api';
+import { pullRemoteProject } from '../lib/projectSync';
 import type { Profile, Settings } from '../lib/types';
 import { Modal, MusicLoader, number } from './UI';
 import { shareInvite } from '../lib/invite';
@@ -8,6 +9,7 @@ import { shareInvite } from '../lib/invite';
 /** Mini-tutorial para qualquer pessoa usar o app com o próprio Last.fm. Nada é enviado a outros usuários. */
 export function Welcome({ settings, onUse, onClose, onNotice, onError }: { settings: Settings; onUse: (profile: Profile) => void; onClose: () => void; onNotice: (s: string) => void; onError: (s: string) => void }) {
   const [step, setStep] = useState(0), [name, setName] = useState(''), [checking, setChecking] = useState(false), [found, setFound] = useState<Profile | null>(null), [error, setError] = useState('');
+  const [syncKeyInput, setSyncKeyInput] = useState(''), [connectingSync, setConnectingSync] = useState(false);
   const steps = ['Seu palco', 'Sua próxima era', 'Em todo aparelho', 'Conta Last.fm', 'Conectar o player', 'Seu perfil'];
   const contentRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => { contentRef.current?.closest('dialog')?.scrollTo({ top: 0, behavior: 'instant' }); }, [step]);
@@ -18,6 +20,21 @@ export function Welcome({ settings, onUse, onClose, onNotice, onError }: { setti
     try { setFound(await getProfile({ user, apiKey: settings.apiKey })); }
     catch (e) { setError(e instanceof ApiError && e.code === 6 ? 'Usuário não encontrado no Last.fm. Confira a grafia.' : e instanceof Error ? e.message : 'Não foi possível verificar agora.'); }
     finally { setChecking(false); }
+  };
+  const handleConnectSync = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!syncKeyInput.trim()) return;
+    setConnectingSync(true); setError('');
+    try {
+      const { changed } = await pullRemoteProject(syncKeyInput);
+      onNotice(`Backstage sincronizado! ${changed} semanas e preferências aplicadas.`);
+      onClose();
+      setTimeout(() => window.location.reload(), 1000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Chave inválida ou não encontrada na nuvem.');
+    } finally {
+      setConnectingSync(false);
+    }
   };
   return <Modal title="Bem-vinda à sua headliner era ✦" subtitle={`Passo ${step + 1} de ${steps.length} · ${steps[step]}`} onClose={onClose} className="welcome-dialog">
     <div className="welcome" ref={contentRef}>
@@ -31,7 +48,22 @@ export function Welcome({ settings, onUse, onClose, onNotice, onError }: { setti
           <ul className="welcome-points"><li><Check size={15} /> Grátis e sem senha: só o nome de usuário público</li><li><Check size={15} /> Funciona no celular, tablet e computador</li><li><Check size={15} /> Você pode voltar ao perfil de exemplo quando quiser</li></ul>
         </>}
         {step === 1 && <><span className="welcome-icon"><Sparkles size={30}/></span><h3>Conheça sua próxima era.</h3><div className="welcome-features"><div><Radio/><strong>Live Charts</strong><p>A corrida da semana acontece aqui. O resultado só vira oficial depois do fechamento.</p></div><div><Trophy/><strong>280 conquistas</strong><p>Seu fandom, suas décadas e seus hábitos rendem selos colecionáveis.</p></div><div><Music2/><strong>Meu eu do passado</strong><p>Descubra quem ficou no seu coração e quem chegou causando.</p></div><div><Film/><strong>Seu próprio clipe</strong><p>Anime os charts no Estúdio e escolha se quer pular as ausências.</p></div></div></>}
-        {step === 2 && <><span className="welcome-icon"><Cloud size={30}/></span><h3>Seu backstage vai com você.</h3><p>Em <strong>Ajustes › Projetos entre aparelhos</strong>, crie uma chave, envie seu projeto e use a mesma chave no celular, tablet ou computador para recebê-lo.</p><ul className="welcome-points"><li><Check size={15}/> Histórico e preferências cifrados com a sua chave</li><li><Check size={15}/> Seus atalhos favoritos sempre à mão, logo no topo</li><li><Check size={15}/> Acervo em grid ou lista, na mesma ordem</li></ul><p className="note">Guarde a chave: ela é necessária para abrir seu backup. O envio à nuvem depende do serviço de sincronização estar configurado.</p></>}
+        {step === 2 && <>
+          <span className="welcome-icon"><Cloud size={30}/></span>
+          <h3>Seu backstage vai com você.</h3>
+          <p>Em <strong>Ajustes › Projetos entre aparelhos</strong>, crie uma chave, envie seu projeto e use a mesma chave no celular, tablet ou computador para recebê-lo sem importar tudo de novo.</p>
+          <ul className="welcome-points">
+            <li><Check size={15}/> Histórico e preferências cifrados com a sua chave</li>
+            <li><Check size={15}/> Seus atalhos favoritos sempre à mão, logo no topo</li>
+            <li><Check size={15}/> Acervo em grid ou lista, na mesma ordem</li>
+          </ul>
+          <form className="welcome-form" style={{ marginTop: 14 }} onSubmit={handleConnectSync}>
+            <input aria-label="Chave de sincronização de outro aparelho" placeholder="Já tem chave de outro aparelho? Cole aqui…" value={syncKeyInput} onChange={e => setSyncKeyInput(e.target.value)} />
+            <button type="submit" className="button" disabled={connectingSync || !syncKeyInput.trim()}>{connectingSync ? <MusicLoader size="sm" /> : <Check size={15} />}<span>Conectar</span></button>
+          </form>
+          {error && <p className="alert error" role="alert">{error}</p>}
+          <p className="note">Você também pode apontar a câmera do tablet para o QR Code gerado no outro aparelho para conectar na hora.</p>
+        </>}
         {step === 3 && <>
           <span className="welcome-icon"><UserRound size={30} /></span>
           <h3>Tenha uma conta no Last.fm</h3>

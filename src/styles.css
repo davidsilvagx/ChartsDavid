@@ -5280,7 +5280,8 @@ dialog.modal.has-ambient .detail-hero .eyebrow {
 @media(prefers-reduced-motion:reduce) { .award-stage.is-revealed .cover { animation:none; } }
 :root[data-motion='reduced'] .award-stage.is-revealed .cover { animation:none; }
 
-/* ——— Topo contínuo: faixa com a mesma cor do theme-color (área da câmera/relógio) ——— */
+/* ——— Topo contínuo: faixa com a mesma cor do theme-color (área da câmera/relógio/bateria em celulares e tablets) ——— */
+.app-shell::before { content:''; position:fixed; top:0; left:0; right:0; height:env(safe-area-inset-top,0px); background:var(--system-chrome,var(--chrome,var(--bg))); z-index:100; pointer-events:none; transition:background-color .25s ease; }
 .workspace::after { content:''; position:absolute; inset:0 0 auto; z-index:-1; pointer-events:none; height:calc(env(safe-area-inset-top,0px) + 132px);
   background:linear-gradient(180deg,var(--chrome,var(--bg)) 0,var(--chrome,var(--bg)) calc(env(safe-area-inset-top,0px) + 18px),color-mix(in srgb,var(--chrome,var(--bg)) 72%,transparent) 52%,transparent); }
 .topbar { padding-top:env(safe-area-inset-top,0px); height:calc(72px + env(safe-area-inset-top,0px)); }
