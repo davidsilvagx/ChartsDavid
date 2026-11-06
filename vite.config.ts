@@ -51,7 +51,7 @@ export default defineConfig(({ mode }) => {
         const version = `lastchart-${Date.now()}`;
         writeFileSync('dist/sw.js', `const CACHE=${JSON.stringify(version)};const FILES=${JSON.stringify(files)};
 self.addEventListener('install',event=>event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(FILES)).then(()=>self.skipWaiting())));
-self.addEventListener('message',event=>{if(event.data==='SKIP_WAITING')self.skipWaiting()});
+self.addEventListener('message',event=>{if(event.data==='SKIP_WAITING')self.skipWaiting();if(event.data?.type==='ACCOUNT_WORKSPACE_SWITCH')event.waitUntil(self.clients.matchAll({type:'window'}).then(list=>Promise.all(list.filter(client=>client.id!==event.source?.id).map(client=>client.navigate(client.url)))))});
 self.addEventListener('push',event=>{let d={};try{d=event.data?event.data.json():{}}catch{d={title:'LastChart',body:event.data?event.data.text():''}}event.waitUntil(self.registration.showNotification(d.title||'LastChart',{body:d.body||'',tag:d.tag||'lastchart',icon:'/icons/icon-192.png',badge:'/icons/icon-192.png',data:{url:d.url||'/'},lang:'pt-BR'}));});
 self.addEventListener('notificationclick',event=>{event.notification.close();event.waitUntil(self.clients.matchAll({type:'window',includeUncontrolled:true}).then(list=>list[0]?list[0].focus():self.clients.openWindow('/')));});
 self.addEventListener('activate',event=>event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(key=>key.startsWith('lastchart-')&&key!==CACHE).map(key=>caches.delete(key)))).then(()=>self.clients.claim())));
