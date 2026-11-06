@@ -1,3 +1,4 @@
+import { authenticated } from '../../server/auth.mjs';
 export async function itunesProxy(search) {
   const incoming = new URLSearchParams(search);
   // Discografia de um artista (para estimar estreia e número de álbuns): lookup por ID numérico.
@@ -67,7 +68,7 @@ export async function itunesProxy(search) {
   }
 }
 
-export default async (request) => {
+export default authenticated(async (request) => {
   if (request.method !== 'GET') return new Response('Method not allowed', { status: 405 });
   return itunesProxy(new URL(request.url).search);
-};
+});
