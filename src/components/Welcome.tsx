@@ -45,7 +45,7 @@ export function Welcome({ settings, onUse, onClose, onNotice, onError }: { setti
           <h3>Você dá o play. A gente monta o show.</h3>
           <p>Seu histórico vira charts, vídeos, troféus e um perfil com a sua energia. Sem julgamento de guilty pleasure: aqui todo replay merece palco.</p>
           <div className="welcome-stage" role="img" aria-label="Ilustração de uma parada musical em crescimento"><div/><div/><div/><div/><div/><Trophy size={32}/></div>
-          <ul className="welcome-points"><li><Check size={15} /> Grátis e sem senha: só o nome de usuário público</li><li><Check size={15} /> Funciona no celular, tablet e computador</li><li><Check size={15} /> Você pode voltar ao perfil de exemplo quando quiser</li></ul>
+          <ul className="welcome-points"><li><Check size={15} /> Last.fm sem senha: basta seu nome de usuário público</li><li><Check size={15} /> Funciona no celular, tablet e computador</li><li><Check size={15} /> Você pode voltar ao perfil de exemplo quando quiser</li></ul>
         </>}
         {step === 1 && <><span className="welcome-icon"><Sparkles size={30}/></span><h3>Conheça sua próxima era.</h3><div className="welcome-features"><div><Radio/><strong>Live Charts</strong><p>A corrida da semana acontece aqui. O resultado só vira oficial depois do fechamento.</p></div><div><Trophy/><strong>280 conquistas</strong><p>Seu fandom, suas décadas e seus hábitos rendem selos colecionáveis.</p></div><div><Music2/><strong>Meu eu do passado</strong><p>Descubra quem ficou no seu coração e quem chegou causando.</p></div><div><Film/><strong>Seu próprio clipe</strong><p>Anime os charts no Estúdio e escolha se quer pular as ausências.</p></div></div></>}
         {step === 2 && <>

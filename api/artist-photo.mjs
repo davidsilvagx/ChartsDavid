@@ -1,2 +1,3 @@
+import { authenticated } from '../server/auth.mjs';
 import { handleArtistPhoto } from '../server/artist-photo.mjs';
-export const GET = request => handleArtistPhoto(request);
+export const GET = authenticated(request => handleArtistPhoto(request));

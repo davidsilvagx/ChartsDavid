@@ -1,4 +1,6 @@
 import {
+  lazy,
+  Suspense,
   createContext,
   useCallback,
   useContext,
@@ -13,6 +15,8 @@ import { copyGuestDatabaseToAccount } from "../lib/storage";
 import {
   switchWorkspacePreferences,
   workspaceOwner,
+  rememberLoginIntent,
+  hasLoginIntent,
 } from "../lib/accountWorkspace";
 import {
   AccountConflict,
@@ -27,11 +31,12 @@ import {
   writeAccountSnapshot,
 } from "../lib/accountSync";
 
+const AccountGate = lazy(() => import("./AccountGate").then(m => ({default:m.AccountGate})));
 interface AccountContextValue {
   session: Session | null;
   recovery: boolean;
   finishRecovery: () => void;
-  prepareLogin: (carry: boolean) => void;
+  prepareLogin: (carry: boolean, email: string) => void;
   sync: (preference?: "local" | "remote", force?: boolean) => Promise<void>;
   status: string;
   busy: boolean;
@@ -56,8 +61,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     [busy, setBusy] = useState(false),
     [conflict, setConflict] = useState<AccountConflict | null>(null),
     [lastSync, setLastSync] = useState(0);
-  const carry = useRef(false),
-    switching = useRef(false),
+  const switching = useRef(false),
     running = useRef(false),
     initializing = useRef(true),
     dirty = useRef(true),
@@ -65,23 +69,33 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     conflictRef = useRef<AccountConflict | null>(null),
     sessionRef = useRef<Session | null>(null),
     applying = useRef(false),
-    alive = useRef(true);
+    alive = useRef(true),
+    authGeneration = useRef(0);
   useEffect(() => {
     alive.current = true;
     const accept = async (next: Session | null, event?: string) => {
       if (!alive.current || switching.current) return;
+      const authAttempt=++authGeneration.current;
       if (event === "PASSWORD_RECOVERY") {
         sessionStorage.setItem("lastchart-account:recovery", "1");
         setRecovery(true);
       }
+      if (next) {
+        try {
+          const { data, error } = await supabase.auth.getUser(next.access_token);
+          if (error || !data.user?.email_confirmed_at || data.user.is_anonymous) next = null;
+        } catch { next = null; }
+      }
+      if (!alive.current || authAttempt!==authGeneration.current) return;
       const owner = next?.user.id ?? "guest";
       if (workspaceOwner() !== owner) {
         switching.current = true;
         try {
           const bring =
-            carry.current && workspaceOwner() === "guest" && owner !== "guest";
+            hasLoginIntent(next?.user.email ?? '') && workspaceOwner() === "guest" && owner !== "guest";
           if (bring) await copyGuestDatabaseToAccount(owner);
           switchWorkspacePreferences(owner, bring);
+          localStorage.removeItem('lastchart-account:login-intent');
           if (bring)
             localStorage.setItem(
               `lastchart-account:import-guest:${owner}`,
@@ -329,8 +343,8 @@ export function AccountProvider({ children }: { children: ReactNode }) {
           sessionStorage.removeItem("lastchart-account:recovery");
           setRecovery(false);
         },
-        prepareLogin: (value) => {
-          carry.current = value;
+        prepareLogin: (value, email) => {
+          rememberLoginIntent(value,email);
         },
         sync,
         status,
@@ -340,7 +354,9 @@ export function AccountProvider({ children }: { children: ReactNode }) {
         signOut,
       }}
     >
-      {ready && (!session || !booting) ? (
+      {ready && (!session || recovery) ? (
+        <Suspense fallback={<main className="account-loading" role="status">Preparando sua entrada…</main>}><AccountGate/></Suspense>
+      ) : ready && !booting ? (
         children
       ) : (
         <main className="account-loading" role="status">

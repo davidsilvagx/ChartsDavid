@@ -1,3 +1,4 @@
+import { passwordRules, validPassword } from "../lib/passwordPolicy";
 import { useState, type FormEvent } from "react";
 import {
   CloudCheck,
@@ -30,8 +31,8 @@ export function AccountPanel() {
     setBusy(true);
     try {
       if (account.recovery) {
-        if (password.length < 12 || password !== confirm) {
-          setError("Use ao menos 12 caracteres e repita a mesma senha.");
+        if (!validPassword(password) || password !== confirm) {
+          setError("Use 12 a 72 bytes, maiúscula, minúscula, número e símbolo; repita a mesma senha.");
           return;
         }
         const { error } = await supabase.auth.updateUser({ password });
@@ -50,11 +51,11 @@ export function AccountPanel() {
           "Se esse e-mail tiver conta, enviaremos o link. Abra-o neste mesmo navegador; confira também o spam.",
         );
       } else if (mode === "signup") {
-        if (password.length < 12 || password !== confirm) {
-          setError("Use ao menos 12 caracteres e repita a mesma senha.");
+        if (!validPassword(password) || password !== confirm) {
+          setError("Use 12 a 72 bytes, maiúscula, minúscula, número e símbolo; repita a mesma senha.");
           return;
         }
-        account.prepareLogin(carry);
+        account.prepareLogin(carry,email);
         const { data, error } = await supabase.auth.signUp({
           email: email.trim(),
           password,
@@ -70,7 +71,7 @@ export function AccountPanel() {
         setPassword("");
         setConfirm("");
       } else {
-        account.prepareLogin(carry);
+        account.prepareLogin(carry,email);
         const { error } = await supabase.auth.signInWithPassword({
           email: email.trim(),
           password,
@@ -280,7 +281,7 @@ export function AccountPanel() {
                   }
                   required
                   minLength={mode === "signup" || account.recovery ? 12 : 1}
-                  maxLength={128}
+                  maxLength={72}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                 />
@@ -294,11 +295,11 @@ export function AccountPanel() {
                   autoComplete="new-password"
                   required
                   minLength={12}
-                  maxLength={128}
+                  maxLength={72}
                   value={confirm}
                   onChange={(e) => setConfirm(e.target.value)}
                 />
-                <small>Use pelo menos 12 caracteres.</small>
+                <ul className="password-rules" aria-label="Requisitos de senha">{passwordRules(password).map(rule => <li key={rule.label} className={rule.met ? "met" : ""}>{rule.met ? "✓" : "○"} {rule.label}</li>)}</ul>
               </label>
             )}
             {!account.recovery && mode !== "reset" && (

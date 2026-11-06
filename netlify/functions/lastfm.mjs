@@ -1,3 +1,4 @@
+import { authenticated } from '../../server/auth.mjs';
 const allowed = new Map(
   ['user.getInfo', 'user.getRecentTracks', 'user.getWeeklyChartList', 'user.getTopTracks', 'user.getTopAlbums', 'artist.getInfo', 'artist.getTopTracks', 'artist.getTopAlbums', 'album.getInfo', 'track.getInfo'].map(
     m => [m.toLowerCase(), m],
@@ -21,7 +22,7 @@ export async function lastfmProxy(search, apiKey) {
     return new Response(body, { status: response.status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
   } catch { return Response.json({ error: 11, message: 'Last.fm indisponível. Tente novamente.' }, { status: 502 }); }
 }
-export default async (request) => {
+export default authenticated(async (request) => {
   if (request.method !== 'GET') return new Response('Method not allowed', { status: 405 });
   return lastfmProxy(new URL(request.url).search, process.env.LASTFM_API_KEY);
-};
+});
