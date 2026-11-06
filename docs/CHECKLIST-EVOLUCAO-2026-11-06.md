@@ -24,8 +24,8 @@ Cada item só recebe [x] após implementação e verificação. Dependências ex
 
 - [x] TypeScript, 199 testes de regressão (26 arquivos) e build de produção.
 - [x] Opera real: fluxos principais em 390×844, 768×1024, 1024×768 e 1440×1000.
-- [ ] Commits, merge em main e push.
-- [ ] Deploy Vercel e verificação do endereço publicado.
+- [x] Commits, merge em main e push (PR #14, squash `eb1c932`).
+- [x] Deploy Vercel e verificação do endereço publicado (https://charts-david.vercel.app: bundle idêntico ao build testado e `/api/artist-photo` respondendo 200).
 
 ## Constatações iniciais
 
