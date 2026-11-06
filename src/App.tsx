@@ -50,6 +50,7 @@ import {
   X,
 } from 'lucide-react';
 import { workspaceOwner } from './lib/accountWorkspace';
+import { AppVersion } from './components/AppVersion';
 import { AccountEntry } from './components/AccountEntry';
 import { AchievementCelebration } from './components/AchievementCelebration';
 import { useData } from './lib/useData';
@@ -1548,7 +1549,7 @@ function App() {
           <footer className="page-footer">
             <span>
               <AudioLines size={15} />
-              <span>Feito com ❤️ por William Santos</span>
+              <span>Feito com ❤️ por William Santos</span><AppVersion/>
             </span>
             <span>
               {computing ? (
