@@ -1,4 +1,5 @@
 import { buildCharts, getLibrary } from '../lib/charts';
+import { closedCache } from '../lib/closedWeeks';
 import type { AliasRule, CachedWeek, Kind, SourceFilter, Week } from '../lib/types';
 
 self.onmessage = (
@@ -14,10 +15,13 @@ self.onmessage = (
 ) => {
   const { id, weeks, cached, kind, deduplicate, aliases, sourceFilter = 'all' } = event.data;
   try {
+    const closed = closedCache(weeks, cached);
+    const series = buildCharts(weeks, cached, kind, deduplicate, aliases, sourceFilter);
     self.postMessage({
       id,
-      charts: buildCharts(weeks, cached, kind, deduplicate, aliases, sourceFilter),
-      library: getLibrary(cached, kind, deduplicate, aliases, sourceFilter),
+      charts: series.filter(w => !w.partial),
+      liveChart: series.find(w => w.partial) ?? null,
+      library: getLibrary(closed, kind, deduplicate, aliases, sourceFilter),
     });
   } catch (error) {
     self.postMessage({ id, error: error instanceof Error ? error.message : String(error) });
