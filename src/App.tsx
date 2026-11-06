@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import {
   ArrowDownToLine,
@@ -25,6 +25,8 @@ import {
   History,
   ImageDown,
   Library,
+  List,
+  Radio,
   Link2,
   Moon,
   Music2,
@@ -99,6 +101,10 @@ import { personalAwards } from './lib/achievements';
 import { weekHeadlines } from './lib/press';
 import { artworkColor, chromeFor, setChromeBase } from './lib/chrome';
 import { NotificationsPanel, useMilestoneNotifications } from './components/Notifications';
+import { Duration, DurationContext } from './components/Duration';
+import { formatWeeks } from './lib/duration';
+import { QuickAccess, type QuickTarget } from './components/QuickAccess';
+import { LiveCharts } from './components/LiveCharts';
 import './styles.css';
 
 type Page = 'overview' | 'charts' | 'studio' | 'extras' | 'library' | 'settings';
@@ -124,13 +130,14 @@ const Extras = lazy(() => import('./components/Extras').then(m => ({ default: m.
 const Welcome = lazy(() => import('./components/Welcome').then(m => ({ default: m.Welcome })));
 const OfficialAwards = lazy(() => import('./components/OfficialAwards').then(m => ({ default: m.OfficialAwards })));
 const DeviceSync = lazy(() => import('./components/DeviceSync').then(m => ({ default: m.DeviceSync })));
+const AnnualRecords = lazy(() => import('./components/AnnualRecords').then(m => ({ default: m.AnnualRecords })));
 const Loading = () => <div className="spotlight-loading" role="status"><MusicLoader size="md" /><span>Carregando…</span></div>;
 
 const kindLabels: Record<Kind, string> = { tracks: 'Músicas', albums: 'Álbuns', artists: 'Artistas' };
 
 function App() {
   const [page, setPage] = useState<Page>('overview');
-  const [chartsTab, setChartsTab] = useState<'weekly' | 'records'>('weekly');
+  const [chartsTab, setChartsTab] = useState<'weekly' | 'records' | 'live'>('weekly');
   const [kind, setKind] = useState<Kind>('tracks');
   const data = useData(kind);
   const {
@@ -154,7 +161,8 @@ function App() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [spotlightTab,setSpotlightTab]=useState<SpotlightTab|null>(null);
   // Primeira visita neste aparelho ou link de convite: mini-tutorial para usar o próprio Last.fm.
-  const [showWelcome,setShowWelcome]=useState(()=>{try{return !localStorage.getItem('lastchart-studio:settings:v1')||new URLSearchParams(location.search).has('convite');}catch{return false;}});
+  const [showWelcome,setShowWelcome]=useState(()=>{try{return localStorage.getItem('lastchart-studio:welcome-completed') !== '1';}catch{return true;}});
+  const completeWelcome = () => { try { localStorage.setItem('lastchart-studio:welcome-completed', '1'); } catch { /* session only */ } setShowWelcome(false); };
   const [syncAfterSwitch,setSyncAfterSwitch]=useState(false);
   const spotlightOpen=spotlightTab!==null;
   const setSpotlightOpen=(open:boolean)=>setSpotlightTab(open?'chart':null);
@@ -178,11 +186,13 @@ function App() {
   const [help, setHelp] = useState(false);
   const [avatarModal, setAvatarModal] = useState(false);
   const [installHelp, setInstallHelp] = useState(false);
+  const [installOffer, setInstallOffer] = useState(false);
   const [installPrompt, setInstallPrompt] = useState<InstallPrompt | null>(null);
   const [installing,setInstalling]=useState(false);
   const [installed,setInstalled]=useState(()=>matchMedia('(display-mode: standalone)').matches || (navigator as Navigator & {standalone?:boolean}).standalone===true);
   const [online, setOnline] = useState(navigator.onLine);
   const [libraryLimit, setLibraryLimit] = useState(60);
+  const [libraryView, setLibraryView] = useState<'grid' | 'list'>(() => { try { return localStorage.getItem('lastchart-studio:view-mode') === 'list' ? 'list' : 'grid'; } catch { return 'grid'; } });
   const [metaFilter, setMetaFilter] = useState<MetaFilter>(emptyMetaFilter);
   const [libraryMeta, setLibraryMeta] = useState<Map<string, EffectiveMeta>>(new Map());
   const [systemDark, setSystemDark] = useState(() => matchMedia('(prefers-color-scheme: dark)').matches);
@@ -197,7 +207,8 @@ function App() {
 
   const years = useMemo(() => [...new Set(weeks.map(w => w.year))].reverse(), [weeks]);
   const filtered = useMemo(() => charts.filter(w => year === 'all' || w.year === Number(year)), [charts, year]);
-  const yearSummary = useMemo(() => summarizePeriod(weeksInPeriod(weeks, year), charts), [weeks, year, charts]);
+  const closedWeeks = useMemo(() => weeks.filter(w => !w.partial), [weeks]);
+  const yearSummary = useMemo(() => summarizePeriod(weeksInPeriod(closedWeeks, year), charts), [closedWeeks, year, charts]);
   const selected = filtered.find(w => w.id === weekId) ?? filtered.filter(w => w.status === 'loaded').at(-1) ?? filtered.at(-1);
   const selectedIndex = filtered.findIndex(w => w.id === selected?.id);
   const loaded = useMemo(() => charts.filter(w => w.status === 'loaded'), [charts]);
@@ -214,11 +225,25 @@ function App() {
   const recent = useMemo(() => charts.filter(w => w.start <= (selected?.start ?? Infinity)).slice(-8), [charts, selected?.start]);
   const chartItems = useMemo(() => selected?.entries.slice(0, 5) ?? [], [selected]);
   const totalScrobbles = sourceCounts[sourceFilter];
-  const lastfmLoaded = useMemo(() => cached.filter(isLastfmWeekSynced).length, [cached]);
+  const lastfmLoaded = useMemo(() => data.allCached.filter(isLastfmWeekSynced).length, [data.allCached]);
   const recentEightLoaded = useMemo(() => {
-    const saved = new Set(cached.filter(isLastfmWeekSynced).map(w => w.week.id));
+    const saved = new Set(data.allCached.filter(isLastfmWeekSynced).map(w => w.week.id));
     return weeks.slice(-8).filter(w => saved.has(w.id)).length;
-  }, [weeks, cached]);
+  }, [weeks, data.allCached]);
+  const libraryRanks = useMemo(() => new Map(library.map((item, i) => [item.id, i + 1])), [library]);
+  useEffect(() => { try { localStorage.setItem('lastchart-studio:view-mode', libraryView); } catch { /* optional */ } }, [libraryView]);
+  useEffect(() => {
+    if (installed || showWelcome) return;
+    try { if (localStorage.getItem('lastchart-studio:install-dismissed')) return; } catch { return; }
+    const timer = setTimeout(() => setInstallOffer(true), 12000);
+    return () => clearTimeout(timer);
+  }, [installed, showWelcome]);
+  const dismissInstall = () => { setInstallOffer(false); try { localStorage.setItem('lastchart-studio:install-dismissed', '1'); } catch { /* optional */ } };
+  const quickOpen = (target: QuickTarget) => {
+    if (target === 'profile' || target === 'achievements') setSpotlightTab(target);
+    else if (target === 'live') { navigate('charts'); setChartsTab('live'); focusSection('.live-charts'); }
+    else { navigate('library'); setFavOnly(true); }
+  };
   const newEntries = selected?.entries.filter(e => e.change === 'NEW').length ?? 0;
   const largestRise = selected?.entries
     .filter(e => typeof e.change === 'number' && e.change > 0)
@@ -486,7 +511,7 @@ function App() {
     if (!selected || !known || !selected.entries.length || exportingCard) return;
     setExportingCard(true);
     try {
-      const blob = await renderWeeklyShareCard(selected, kind, settings.user);
+      const blob = await renderWeeklyShareCard(selected, kind, settings.user, settings.durationMode);
       if (blob) download(format === 'pdf' ? await shareCardPDF(blob) : blob, `lastchart-card-${kind}-${selected.id}.${format}`);
       else data.setError('Não foi possível gerar o card da semana.');
     } catch {
@@ -497,7 +522,7 @@ function App() {
   };
 
   const exportBackup = () =>
-    download(new Blob([backupJSON(settings, cached, profile)], { type: 'application/json' }), `lastchart-backup-${settings.user}.json`);
+    download(new Blob([backupJSON(settings, data.allCached, profile)], { type: 'application/json' }), `lastchart-backup-${settings.user}.json`);
 
   const loadBackup = async (file?: File) => {
     if (!file || importingBackup) return;
@@ -519,7 +544,7 @@ function App() {
   const legendPalette = palettes.neon;
 
   return (
-    <ModalArtworkContext.Provider value={heroArtwork}><div className="app-shell">
+    <DurationContext.Provider value={settings.durationMode ?? 'weeks'}><ModalArtworkContext.Provider value={heroArtwork}><div className="app-shell">
       <a href="#main" className="skip-link">
         Pular para o conteúdo
       </a>
@@ -553,20 +578,8 @@ function App() {
         </nav>
 
         <div className="sidebar-bottom">
-          <div className="install-card">
-            <div className="install-card-top">
-              <span className="install-icon">
-                <Smartphone size={18} />
-              </span>
-              <span className="tiny-pill">PWA</span>
-            </div>
-            <strong>App nativo no celular</strong>
-            <p>Acesso offline aos seus charts e tela cheia no Android ou iOS.</p>
-            <button type="button" className="button full small" onClick={install}>
-              <span>Instalar app</span>
-              <ArrowUpRight size={14} />
-            </button>
-          </div>
+          <button type="button" className="sidebar-live" onClick={() => quickOpen('live')}><Radio size={18}/><span>Live Charts<small>A próxima era já começou</small></span><i/></button>
+          <button type="button" className="sidebar-help" onClick={() => setShowWelcome(true)}><Sparkles size={16}/><span>Tour pelo LastChart</span></button>
           <button type="button" className="sidebar-help" onClick={() => setHelp(true)}>
             <CircleHelp size={16} />
             <span>Metodologia ZeroCharts</span>
@@ -625,9 +638,10 @@ function App() {
             </button>
           </div>
         </header>
+        <QuickAccess onOpen={quickOpen}/>
 
         <main id="main">
-          {page==='overview'&&!installed&&<section className="install-banner" aria-label="Instalar LastChart no celular"><Smartphone size={24}/><div><strong>Seu LastChart na tela inicial</strong><small>Instale pelo navegador e abra como aplicativo.</small></div><button type="button" className="button primary" onClick={()=>void install()} disabled={installing}>{installing?<MusicLoader size="sm" tone="ink"/>:<Download size={16}/>}<span>{installing?'Abrindo instalação…':'Instalar no celular'}</span></button></section>}
+
               {page==='overview'&&<section className="spotlight-entry"><div className="spotlight-entry-icon"><GramophoneIcon size={34}/></div><div><span className="eyebrow">SPOTLIGHT</span><h2>Seu gosto merece o palco.</h2><p>Premiação Grammy pessoal com júri ou voto, seu perfil musical e signo, comparação e recordes. Tudo em Extras.</p></div><button type="button" className="button" onClick={()=>navigate('extras')}><Sparkles size={16}/><span>Abrir Extras & prêmios</span></button></section>}
           {!online && (
             <div className="alert">
@@ -997,7 +1011,7 @@ function App() {
                         {leader && (
                           <div className="spotlight-pills">
                             <span>Pico #{leader.peak}</span>
-                            <span>{leader.weeks} sem.</span>
+                            <span><Duration weeks={leader.weeks}/></span>
                             {(leader.weeksAtOne ?? 0) > 1 && <span>{leader.weeksAtOne}× #1</span>}
                           </div>
                         )}
@@ -1198,7 +1212,7 @@ function App() {
                     <div>
                       <span className="eyebrow">TABELA OFICIAL ZEROCHARTS</span>
                       <h2>
-                        {chartsTab === 'weekly' ? `${kindLabels[kind]} · Top ${top}` : `Hall de Recordes · ${kindLabels[kind]}`}
+                        {chartsTab === 'live' ? `Live · ${kindLabels[kind]}` : chartsTab === 'weekly' ? `${kindLabels[kind]} · Top ${top}` : `Hall de Recordes · ${kindLabels[kind]}`}
                       </h2>
                       <p>
                         {chartsTab === 'weekly'
@@ -1225,12 +1239,13 @@ function App() {
                           <Trophy size={14} />
                           <span>Recordes</span>
                         </button>
+                        <button type="button" className={chartsTab === 'live' ? 'selected' : ''} onClick={() => setChartsTab('live')}><Radio size={14}/><span>Live</span></button>
                       </div>
                     </div>
                   </div>
 
-                  {chartsTab === 'records' ? (
-                    <RecordsBoard records={records} onDetail={setDetail} />
+                  {chartsTab === 'live' ? <LiveCharts chart={data.liveChart} busy={!!progress || computing} online={online} timezone={settings.timezone} updatedAt={data.allCached.find(w => w.week.id === data.liveChart?.id)?.fetchedAt ?? 0} onRefresh={() => void data.sync('recent')} onDetail={item => setDetail({ ...item, plays: library.find(i => i.id === item.id)?.plays ?? 0 })}/> : chartsTab === 'records' ? (
+                    <><RecordsBoard records={records} onDetail={setDetail} /><Suspense fallback={<Loading/>}><AnnualRecords cached={cached} settings={settings} source={sourceFilter} initialYear={year}/></Suspense></>
                   ) : (
                     <>
                       {known && (() => { const heads = weekHeadlines(selected, filtered[selectedIndex - 1]); return heads.length ? <div className="press-strip" aria-label="Manchetes da semana"><span className="eyebrow">MANCHETES DA SEMANA · Imprensa LastChart (ficção com seus dados reais)</span><div>{heads.map(h => <article key={h.id} className={`tone-${h.tone}`}><strong>{h.title}</strong><small>{h.dek}</small></article>)}</div></div> : null; })()}
@@ -1335,7 +1350,7 @@ function App() {
                   reduced={reduced}
                   dark={dark}
                   busy={computing}
-                  username={profile?.realname || (profile?.name && profile.name !== 'Iknowjauregui' ? profile.name : 'David')}
+                  username={profile?.realname || profile?.name || settings.user}
                   kind={kind}
                   audioNamespace={settings.user}
                   onSoundStart={closePreview}
@@ -1368,6 +1383,7 @@ function App() {
                       <Heart size={15} fill={favOnly ? 'currentColor' : 'none'} />
                       <span>Favoritos</span>
                     </button>
+                    <div className="segmented compact-seg" role="group" aria-label="Visualização do acervo"><button type="button" aria-label="Ver acervo em grid" aria-pressed={libraryView === 'grid'} className={libraryView === 'grid' ? 'selected' : ''} onClick={() => setLibraryView('grid')}><Grid2X2 size={17}/></button><button type="button" aria-label="Ver acervo em lista" aria-pressed={libraryView === 'list'} className={libraryView === 'list' ? 'selected' : ''} onClick={() => setLibraryView('list')}><List size={17}/></button></div>
                   </div>
 
                   <div className="table-toolbar">
@@ -1385,14 +1401,14 @@ function App() {
                     </div>
                   </div>
 
-                  <div className="library-grid">
+                  <div className={`library-grid ${libraryView === 'list' ? 'is-list' : ''}`}>
                     {filteredLibrary.slice(0, libraryLimit).map(item => {
                       const cert = getCertification(item.plays);
                       const isPlaying = player?.playing && player.item.id === item.id;
                       const isLoadingAudio = player?.loading && player.item.id === item.id;
                       return (
                         <article className="library-item" key={item.id}>
-                          <div className="library-cover-wrap">
+                          <div className="library-cover-wrap"><span className="library-rank" aria-label={`Posição ${libraryRanks.get(item.id)}`}>{String(libraryRanks.get(item.id)).padStart(2, '0')}</span>
                             <button type="button" className="library-cover" onClick={() => setDetail(item)}>
                               <Cover item={item} />
                             </button>
@@ -1526,14 +1542,14 @@ function App() {
         />
       )}
 
-      {historyOpen && <HistoryExplorer weeks={weeks} charts={charts} initialYear={year} selectedId={selected?.id} startDate={settings.startDate} computing={computing} progress={progress} error={error} onCancel={data.cancel} onSync={scope => void data.sync(scope)} onClose={() => setHistoryOpen(false)} onCalendar={() => {setHistoryOpen(false);navigate('settings');}} initialMode={page==='studio'?'period':'archive'} onChoose={week => {setYear(String(week.year));setWeekId(week.id);setHistoryOpen(false);navigate('charts');}} settings={settings} cached={cached} kind={kind} source={sourceFilter} onAnimate={result => {setStudioPeriod(result);setStudioSeed(undefined);setHistoryOpen(false);if(page!=='studio')navigate('studio');}} />}
+      {historyOpen && <HistoryExplorer weeks={closedWeeks} charts={charts} initialYear={year} selectedId={selected?.id} startDate={settings.startDate} computing={computing} progress={progress} error={error} onCancel={data.cancel} onSync={scope => void data.sync(scope)} onClose={() => setHistoryOpen(false)} onCalendar={() => {setHistoryOpen(false);navigate('settings');}} initialMode={page==='studio'?'period':'archive'} onChoose={week => {setYear(String(week.year));setWeekId(week.id);setHistoryOpen(false);navigate('charts');}} settings={settings} cached={cached} kind={kind} source={sourceFilter} onAnimate={result => {setStudioPeriod(result);setStudioSeed(undefined);setHistoryOpen(false);if(page!=='studio')navigate('studio');}} />}
 
-      {spotlightOpen&&<Suspense fallback={null}><Spotlight charts={charts} library={library} cached={cached} settings={settings} source={sourceFilter} reduced={reduced} owner={profile?.realname||(profile?.name&&profile.name!=='Iknowjauregui'?profile.name:'David')} namespace={settings.user} initialYear={year} dark={dark} kind={kind} timezone={settings.timezone} initialTab={spotlightTab??'chart'} onClose={()=>setSpotlightOpen(false)} onDownload={value=>{setSpotlightOpen(false);void data.sync(value==='all'?'all':Number(value));}} onStudio={(ids,title,series,items,count)=>{
+      {spotlightOpen&&<Suspense fallback={null}><Spotlight charts={charts} library={library} cached={cached} settings={settings} source={sourceFilter} reduced={reduced} owner={profile?.realname||profile?.name||settings.user} namespace={settings.user} initialYear={year} dark={dark} kind={kind} timezone={settings.timezone} initialTab={spotlightTab??'chart'} onClose={()=>setSpotlightOpen(false)} onDownload={value=>{setSpotlightOpen(false);void data.sync(value==='all'?'all':Number(value));}} onStudio={(ids,title,series,items,count)=>{
         try{const saved=JSON.parse(localStorage.getItem('lastchart-studio:studio')??'{}');localStorage.setItem('lastchart-studio:studio',JSON.stringify({...studioDefaults,...saved,chartName:title,top:count,barCount:Math.min(count,30),mode:count>30?'lines':saved.mode??'lines'}));}catch{/* optional preference */}
         setStudioPeriod({charts:series,library:items,unit:'week'});setStudioSeed(ids);setSpotlightOpen(false);navigate('studio');
       }}/></Suspense>}
 
-      {showWelcome && <Suspense fallback={null}><Welcome settings={settings} onClose={() => setShowWelcome(false)} onNotice={data.setNotice} onError={data.setError} onUse={found => { setShowWelcome(false); setYear('all'); setWeekId(''); setSettings({ ...settings, user: found.name, avatar: 'lastfm' }); setSyncAfterSwitch(true); data.setNotice(`Bem-vindo, ${found.realname || found.name}! Baixando o seu histórico…`); navigate('overview'); }} /></Suspense>}
+      {showWelcome && <Suspense fallback={null}><Welcome settings={settings} onClose={completeWelcome} onNotice={data.setNotice} onError={data.setError} onUse={found => { completeWelcome(); setYear('all'); setWeekId(''); setSettings({ ...settings, user: found.name, avatar: 'lastfm' }); setSyncAfterSwitch(true); data.setNotice(`Bem-vindo, ${found.realname || found.name}! Baixando o seu histórico…`); navigate('overview'); }} /></Suspense>}
 
       {avatarModal && (
         <AvatarPickerModal
@@ -1594,7 +1610,8 @@ function App() {
           </div>
         </Modal>
       )}
-    </div></ModalArtworkContext.Provider>
+      {installOffer && !installed && !showWelcome && <Modal title="Seu palco na tela inicial" subtitle="Abra seus charts como aplicativo, com acesso ao que já está salvo mesmo offline." onClose={dismissInstall}><div className="install-popup-art"><Smartphone size={44}/><Sparkles size={24}/></div><p>Instale o LastChart pelo navegador. Você também encontra essa opção em Ajustes.</p><div className="inline-actions"><button type="button" className="button primary" onClick={() => { dismissInstall(); void install(); }}><Download size={16}/> Instalar</button><button type="button" className="button" onClick={dismissInstall}>Agora não</button></div></Modal>}
+    </div></ModalArtworkContext.Provider></DurationContext.Provider>
   );
 }
 
@@ -1642,7 +1659,7 @@ function Ranking({
             <th scope="col">Item</th>
             <th scope="col" className="num-col">Plays</th>
             <th scope="col" className="detail-col">Pico</th>
-            <th scope="col" className="detail-col">Sem.</th>
+            <th scope="col" className="detail-col">Duração</th>
             <th scope="col" className="run-col">Chart Run</th>
             <th scope="col" className="actions-col">
               <span className="sr-only">Ações</span>
@@ -1673,7 +1690,7 @@ function Ranking({
                       <strong>{e.name}</strong>
                       <small>{e.artist}</small>
                       <span className="mobile-stats-inline">
-                        <b>{number(e.plays)} plays</b> · Pico #{e.peak} · {e.weeks} sem.
+                        <b>{number(e.plays)} plays</b> · Pico #{e.peak} · <Duration weeks={e.weeks}/>
                         {e.change === 'RE' && e.hiatusWeeks ? ` · voltou após ${e.hiatusWeeks} sem. fora` : ''}
                       </span>
                     </span>
@@ -1683,7 +1700,7 @@ function Ranking({
                 <td className="detail-col">
                   <span className={e.peak === 1 ? 'peak-one' : ''}>#{e.peak}</span>
                 </td>
-                <td className="detail-col">{e.weeks}</td>
+                <td className="detail-col"><Duration weeks={e.weeks}/></td>
                 <td className="run-col">
                   <Sparkline values={e.run.slice(-10).map(r => r.rank)} />
                 </td>
@@ -1766,7 +1783,7 @@ function RecordsBoard({
                 <strong>{item.name}</strong>
                 <small>{item.artist}</small>
               </div>
-              <span className="record-metric gold">{weeksAtOne}× #1 · {number(totalPlays)}p</span>
+              <span className="record-metric gold"><Duration weeks={weeksAtOne}/> em #1 · {number(totalPlays)}p</span>
             </button>
           ))
         ) : (
@@ -1786,7 +1803,7 @@ function RecordsBoard({
               <strong>{item.name}</strong>
               <small>{item.artist}</small>
             </div>
-            <span className="record-metric">{weeks} sem · PK #{peak}</span>
+            <span className="record-metric"><Duration weeks={weeks}/> · PK #{peak}</span>
           </button>
         ))}
       </div>
@@ -1860,14 +1877,15 @@ function Detail({
   onFavorite: () => void;
 }) {
   const audit = getItemAuditHistory(charts, item.id, item.plays);
+  const durationMode = useContext(DurationContext);
   const cert = getCertification(audit.totalPlays);
   const awards = useMemo(() => personalAwards(item, profileKey), [item.id, profileKey]);
   const wins = awards.filter(a => a.result === 'win');
   const top10 = audit.run.filter(r => typeof r.rank === 'number' && r.rank <= 10).length;
   const firstOne = audit.run.find(r => r.rank === 1);
   const press = [
-    audit.weeksAtOne > 0 && { t: `${item.name} soma ${audit.weeksAtOne} ${audit.weeksAtOne === 1 ? 'semana' : 'semanas'} em #1`, d: firstOne ? `Chegou ao topo pela primeira vez na semana ${firstOne.number} (${firstOne.label}).` : '' },
-    top10 >= 4 && { t: `Presença de elite: ${top10} semanas no Top 10`, d: `Pico #${audit.peak} e ${audit.weeks} semanas no chart.` },
+    audit.weeksAtOne > 0 && { t: `${item.name} soma ${formatWeeks(audit.weeksAtOne, durationMode)} em #1`, d: firstOne ? `Chegou ao topo pela primeira vez na semana ${firstOne.number} (${firstOne.label}).` : '' },
+    top10 >= 4 && { t: `Presença de elite: ${formatWeeks(top10, durationMode)} no Top 10`, d: `Pico #${audit.peak} e ${formatWeeks(audit.weeks, durationMode)} no chart.` },
     wins.length > 0 && { t: `${wins.length} ${wins.length === 1 ? 'gramofone' : 'gramofones'} na estante`, d: wins.slice(0, 2).map(w => `${w.category} (${w.period})`).join(' · ') },
     cert.tier !== 'none' && { t: `Certificado ${cert.label} no seu histórico`, d: `${number(audit.totalPlays)} reproduções acumuladas.` },
   ].filter(Boolean) as Array<{ t: string; d: string }>;
@@ -1916,12 +1934,12 @@ function Detail({
           <span>Pico no Top 100</span>
         </div>
         <div>
-          <strong>{audit.weeks}</strong>
-          <span>Semanas no chart</span>
+          <strong><Duration weeks={audit.weeks}/></strong>
+          <span>Tempo no chart</span>
         </div>
         <div>
-          <strong>{audit.totalWeeksOut}</strong>
-          <span>Semanas fora (OUT)</span>
+          <strong><Duration weeks={audit.totalWeeksOut}/></strong>
+          <span>Tempo fora (OUT)</span>
         </div>
         <div>
           <strong>{number(audit.totalPlays)}</strong>
@@ -1932,7 +1950,7 @@ function Detail({
       <section className="detail-achievements" aria-label="Conquistas e prêmios">
         <h4><Trophy size={16} /> Conquistas e prêmios</h4>
         <div className="achievement-chips">
-          <span className={audit.weeksAtOne ? 'gold' : ''}><Crown size={14} /> {audit.weeksAtOne} sem. em #1</span>
+          <span className={audit.weeksAtOne ? 'gold' : ''}><Crown size={14} /> <Duration weeks={audit.weeksAtOne}/> em #1</span>
           <span><Sparkles size={14} /> {top10} sem. no Top 10</span>
           <span><TrendingUp size={14} /> Pico {audit.peak ? `#${audit.peak}` : '—'}</span>
           {cert.tier !== 'none' && <span className="gold"><Award size={14} /> {cert.label}</span>}
@@ -1950,12 +1968,12 @@ function Detail({
           <div>
             <strong>
               {audit.currentOutStreak > 0
-                ? `Atualmente há ${audit.currentOutStreak} ${audit.currentOutStreak === 1 ? 'semana' : 'semanas'} fora do Top 100`
-                : `Presente no chart · esteve fora em ${audit.totalWeeksOut} ${audit.totalWeeksOut === 1 ? 'semana' : 'semanas'} desde a estreia`}
+                ? `Atualmente há ${formatWeeks(audit.currentOutStreak, durationMode)} fora do Top 100`
+                : `Presente no chart · esteve fora por ${formatWeeks(audit.totalWeeksOut, durationMode)} desde a estreia`}
             </strong>
             <p>
-              {audit.zeroPlayWeeks > 0 ? `${audit.zeroPlayWeeks} sem. sem nenhum play (0p) · ` : ''}
-              Maior hiato fora do chart: {audit.longestOutStreak} sem.
+              {audit.zeroPlayWeeks > 0 ? `${formatWeeks(audit.zeroPlayWeeks, durationMode)} sem nenhum play (0p) · ` : ''}
+              Maior hiato fora do chart: <Duration weeks={audit.longestOutStreak}/>
               {audit.weeksAtOne > 0 ? ` · ${audit.weeksAtOne}× em #1` : ''}
               {audit.missingWeeksSinceDebut > 0 ? ` · ${audit.missingWeeksSinceDebut} sem. não sincronizada(s) (?)` : ''}
             </p>
@@ -2202,7 +2220,7 @@ function SettingsPage({
               />
               <small>Apenas o nome de usuário público. Nenhuma senha ou login OAuth é solicitado.</small>
             </label>
-            <div className="welcome-cta"><span>Outra pessoa vai usar? Abra o passo a passo ou envie o convite.</span><button type="button" className="button small" onClick={onWelcome}>Passo a passo</button><button type="button" className="button small" onClick={() => void shareInvite(onNotice, onError)}>Convidar</button></div>
+            <div className="welcome-cta"><span>Outra pessoa vai usar? Abra o passo a passo ou envie o convite.</span><button type="button" className="button small" onClick={onWelcome}>Rever tutorial</button><button type="button" className="button small" onClick={() => void shareInvite(onNotice, onError)}>Convidar</button></div>
 
             <div className="form-two">
               <label>
@@ -2510,6 +2528,7 @@ function SettingsPage({
                 onChange={e => setSettings({ ...settings, reducedMotion: e.target.checked })}
               />
             </label>
+            <label>Duração nos charts e prêmios<select aria-label="Formato global de duração" value={settings.durationMode ?? 'weeks'} onChange={e => setSettings({ ...settings, durationMode: e.target.value as Settings['durationMode'] })}><option value="weeks">Sempre em semanas · original</option><option value="equivalent">Equivalente · dias, semanas, meses ou anos</option></select><small>Conversão apenas visual; 7 dias = 1 semana, a partir de 28 dias em meses aproximados e de 365 em anos. Não altera o ranking.</small></label>
             <button type="button" className="button full" onClick={onInstall}>
               <Smartphone size={17} />
               <span>Instalar como aplicativo (PWA)</span>
