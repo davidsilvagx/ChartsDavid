@@ -49,6 +49,7 @@ import {
   WifiOff,
   X,
 } from 'lucide-react';
+import { workspaceOwner } from './lib/accountWorkspace';
 import { AccountEntry } from './components/AccountEntry';
 import { AchievementCelebration } from './components/AchievementCelebration';
 import { useData } from './lib/useData';
@@ -172,8 +173,8 @@ function App() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [spotlightTab,setSpotlightTab]=useState<SpotlightTab|null>(null);
   // Primeira visita neste aparelho ou link de convite: mini-tutorial para usar o próprio Last.fm.
-  const [showWelcome,setShowWelcome]=useState(()=>{try{return localStorage.getItem('lastchart-studio:welcome-completed') !== '1';}catch{return true;}});
-  const completeWelcome = () => { try { localStorage.setItem('lastchart-studio:welcome-completed', '1'); } catch { /* session only */ } setShowWelcome(false); };
+  const [showWelcome,setShowWelcome]=useState(()=>{try{return localStorage.getItem(`lastchart-studio:welcome-completed:${workspaceOwner()}`) !== '1';}catch{return true;}});
+  const completeWelcome = () => { try { localStorage.setItem(`lastchart-studio:welcome-completed:${workspaceOwner()}`, '1'); } catch { /* session only */ } setShowWelcome(false); };
   const [syncAfterSwitch,setSyncAfterSwitch]=useState(false);
   const spotlightOpen=spotlightTab!==null;
   const setSpotlightOpen=(open:boolean)=>setSpotlightTab(open?'chart':null);
