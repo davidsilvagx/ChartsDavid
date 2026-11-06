@@ -6886,3 +6886,5 @@ body { background-color:var(--bg); }
 .seal-tier-name { position:absolute; z-index:3; left:50%; bottom:-11px; transform:translateX(-50%); padding:5px 12px; background:linear-gradient(135deg,var(--metal-light),var(--metal)); border-radius:5px; color:#272b36; font-size:8px; font-weight:900; letter-spacing:.16em; box-shadow:0 3px 8px #0004; }
 .collectible-seal:not(.complete) .seal-tier-emblem,.collectible-seal:not(.complete) .seal-tier-name { filter:grayscale(1); }
 .compact .seal-tier-emblem { top:-7px; min-width:21px; height:19px; font-size:8px; }
+
+.collectible-seal[class*="seal-tier-"] .seal-art { border-color:var(--metal); }
