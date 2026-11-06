@@ -594,7 +594,7 @@ function App() {
         Pular para o conteúdo
       </a>
 
-      <aside className="sidebar" onKeyDown={event => { if (event.key === 'Escape') setSidebarExpanded(false); }}>
+      <aside className="sidebar" onClick={event => { if (!(event.target as Element).closest('button,a,input,select')) setSidebarExpanded(value => !value); }} onKeyDown={event => { if (event.key === 'Escape') setSidebarExpanded(false); }}>
         <button type="button" className="brand" onClick={() => setSidebarExpanded(value => !value)} aria-label={sidebarExpanded ? 'Recolher menu lateral' : 'Expandir menu lateral'} aria-expanded={sidebarExpanded} aria-controls="sidebar-navigation" title={sidebarExpanded ? 'Recolher menu lateral' : 'Expandir menu lateral'}>
           <span className="brand-mark">
             <img src="/favicon.svg" alt="" width="38" height="38" />
@@ -606,6 +606,7 @@ function App() {
           <ChevronLeft className="sidebar-collapse-icon" size={17}/>
         </button>
 
+        <button type="button" className="sidebar-handle" onClick={() => setSidebarExpanded(value => !value)} aria-expanded={sidebarExpanded} aria-controls="sidebar-navigation" aria-label={sidebarExpanded ? 'Recolher navegação' : 'Expandir navegação'} title={sidebarExpanded ? 'Recolher navegação' : 'Expandir navegação'}><ChevronRight size={16}/><span>{sidebarExpanded ? 'Recolher' : 'Menu'}</span></button>
         <span className="sidebar-caption">PLATAFORMA</span>
         <nav id="sidebar-navigation" aria-label="Navegação principal">
           {nav.map(({ id, label, icon: Icon }) => (
@@ -680,7 +681,7 @@ function App() {
             >
               <ProfileAvatar profile={profile} avatar={settings.avatar} className="avatar" />
               <span className="profile-meta">
-                <strong>{isGuest ? 'Convidado (demo)' : (profile?.name ?? settings.user ?? 'Perfil')}</strong>
+                <strong>{isGuest ? 'Convidado' : (profile?.name ?? settings.user ?? 'Perfil')}</strong>
                 <small>{isGuest ? 'Toque p/ conectar' : `${cached.length} sem. salvas`}</small>
               </span>
             </button>

@@ -1,6 +1,8 @@
 import { useEffect, useState, type CSSProperties } from "react";
 import {
   BadgeCheck,
+  Crown,
+  Gem,
   Disc3,
   Flame,
   Heart,
@@ -77,7 +79,7 @@ export function MissionSeal({
   );
   return (
     <div
-      className={`collectible-seal ${compact ? "compact" : ""} ${progress === 100 ? "complete" : ""}`}
+      className={`collectible-seal seal-tier-${m.level} ${compact ? "compact" : ""} ${progress === 100 ? "complete" : ""}`}
       style={
         {
           "--seal-hue": `${hash % 360}`,
@@ -93,6 +95,8 @@ export function MissionSeal({
       <div className="seal-art seal-color" aria-hidden="true">
         {art}
       </div>
+      <span className="seal-tier-emblem" aria-hidden="true">{m.level === 3 ? <Gem size={compact ? 13 : 22}/> : m.level === 2 ? <Crown size={compact ? 13 : 22}/> : m.level === 1 ? '✦ ✦' : m.level === 0 ? '★' : '✧'}</span>
+      {!compact && <span className="seal-tier-name" aria-hidden="true">{['BRONZE','PRATA','OURO','DIAMANTE','POP QUEST'][m.level]}</span>}
       {progress === 100 && (
         <span className="seal-gold" aria-hidden="true">
           <BadgeCheck size={compact ? 18 : 24} />

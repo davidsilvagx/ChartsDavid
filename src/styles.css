@@ -449,10 +449,10 @@ progress::-webkit-progress-value {
 
 /* A compact rail on tablets and desktop; the logo expands the full menu. */
 @media (min-width:768px) {
-  .app-shell .sidebar { display:flex; width:244px; padding:26px 18px 20px; transition:width .24s ease,padding .24s ease; }
-  .app-shell .workspace { margin-left:244px; width:calc(100% - 244px); transition:margin-left .24s ease,width .24s ease; }
+  .app-shell .sidebar { display:flex; inset:14px auto 14px 14px; border:1px solid var(--line); border-radius:30px; width:244px; padding:26px 18px 20px; transition:width .24s ease,padding .24s ease; }
+  .app-shell .workspace { margin-left:272px; width:calc(100% - 272px); transition:margin-left .24s ease,width .24s ease; }
   .app-shell.sidebar-collapsed .sidebar { width:84px; padding:26px 12px 20px; overflow-x:hidden; }
-  .app-shell.sidebar-collapsed .workspace { margin-left:84px; width:calc(100% - 84px); }
+  .app-shell.sidebar-collapsed .workspace { margin-left:112px; width:calc(100% - 112px); }
   .sidebar-collapsed .brand { justify-content:center; padding:4px; }
   .sidebar-collapsed .brand-name,.sidebar-collapsed .nav-link > span,.sidebar-collapsed .sidebar-live > span,.sidebar-collapsed .sidebar-help > span {
     position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap;
@@ -6864,3 +6864,27 @@ body { background-color:var(--bg); }
 .account-tabs { display:flex;padding:5px;gap:5px;border:1px solid var(--line);border-radius:16px;background:var(--surface-alt); }.account-tabs button { flex:1;padding:12px;border-radius:11px;font-weight:700; }.account-tabs [aria-pressed="true"] { color:var(--accent);background:var(--accent-soft); }.account-privacy { display:flex;align-items:flex-start;gap:9px;color:var(--muted);font-size:.74rem;line-height:1.8; }.account-privacy svg { flex:none;margin-top:5px; }.account-identity { display:flex;align-items:center;gap:14px; }.account-identity > div { min-width:0;display:grid;gap:6px;overflow-wrap:anywhere; }.account-identity small { color:var(--muted); }.account-avatar { display:grid;place-items:center;width:58px;height:58px;border-radius:20px;background:var(--accent-soft);color:var(--accent);flex:none; }.account-conflict { display:grid;gap:12px;padding:20px;margin-top:20px;border:1px solid #d8b660;border-radius:18px;background:color-mix(in srgb,var(--surface) 94%,#d8b660); }.account-conflict p { line-height:1.7;font-size:.85rem; }.account-panel .error-text { color:var(--danger,#ed7f8d); }
 @media(max-width:600px) { .topbar .install-header-button { display:none; }.topbar-actions { gap:6px; }.account-entry.connected { color:var(--accent); } }
 .seal-color:has(img)::after { background:linear-gradient(145deg,hsl(var(--seal-hue) 95% 60% / .65),hsl(calc(var(--seal-hue) + 55) 85% 45% / .4)); mix-blend-mode:color; }
+
+/* Floating navigation and progressively richer collectible metals. */
+.sidebar-handle { display:flex; align-items:center; justify-content:center; gap:5px; min-height:32px; margin-top:14px; border:1px solid var(--line); border-radius:14px; background:var(--accent-soft); color:var(--accent); font-size:10px; font-weight:750; }
+.sidebar-expanded .sidebar-handle svg { transform:rotate(180deg); }
+.sidebar-collapsed .sidebar-handle { flex-direction:column; gap:1px; padding:5px 0; }
+.app-shell .sidebar-caption { margin-top:14px; }
+.collectible-seal { --metal:#cf8c60; --metal-light:#ffe0b6; }
+.seal-tier-1 { --metal:#c4d6ed; --metal-light:#f5fbff; }
+.seal-tier-2 { --metal:#efbd3d; --metal-light:#fff4a9; }
+.seal-tier-3 { --metal:#9eeeff; --metal-light:#fff; }
+.seal-tier-4 { --metal:#d5a6ff; --metal-light:#ffdeff; }
+.collectible-seal .seal-art { border:3px solid var(--metal); box-shadow:inset 0 0 0 5px #0003,0 0 0 1px var(--metal-light); }
+.seal-tier-0 .seal-art { border-radius:50%; }
+.seal-tier-1 .seal-art { border-radius:24% 24% 42% 42%; border-width:5px; }
+.seal-tier-2 .seal-art { border-radius:24% 24% 45% 45%; border-width:6px; outline:2px solid var(--metal); outline-offset:5px; }
+.seal-tier-3 .seal-art { border-radius:16% 38% 16% 38%; border-width:7px; outline:3px double var(--metal-light); outline-offset:5px; }
+.seal-tier-3.complete { filter:drop-shadow(0 0 14px #80ddff70); }
+.seal-tier-2.complete { filter:drop-shadow(0 0 12px #eab93b50); }
+.seal-tier-emblem { position:absolute; z-index:3; top:-12px; left:50%; transform:translateX(-50%); display:grid; place-items:center; min-width:34px; height:28px; padding:0 5px; border-radius:9px; border:1px solid var(--metal-light); color:#342b23; background:linear-gradient(135deg,var(--metal-light),var(--metal)); box-shadow:0 3px 9px #0004; font-size:12px; }
+.seal-tier-name { position:absolute; z-index:3; left:50%; bottom:-11px; transform:translateX(-50%); padding:5px 12px; background:linear-gradient(135deg,var(--metal-light),var(--metal)); border-radius:5px; color:#272b36; font-size:8px; font-weight:900; letter-spacing:.16em; box-shadow:0 3px 8px #0004; }
+.collectible-seal:not(.complete) .seal-tier-emblem,.collectible-seal:not(.complete) .seal-tier-name { filter:grayscale(1); }
+.compact .seal-tier-emblem { top:-7px; min-width:21px; height:19px; font-size:8px; }
+
+.collectible-seal[class*="seal-tier-"] .seal-art { border-color:var(--metal); }
