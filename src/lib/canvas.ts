@@ -1,6 +1,7 @@
 import { formatDateBR } from './calendar';
 import { getChartIndex } from './chartIndex';
 import { ResourceCache } from './resourceCache';
+import { resolveCatalogMedia } from './catalog';
 import type { ChartWeek, Item, Kind, StudioSettings } from './types';
 
 export const palettes = {
@@ -704,8 +705,10 @@ function truncateCanvasText(ctx: CanvasRenderingContext2D, text: string, maxWidt
   return low > 0 ? text.slice(0, low).trimEnd() + '…' : '';
 }
 
-export async function renderWeeklyShareCard(week: ChartWeek, kind: Kind, username: string): Promise<Blob | null> {
+export async function renderWeeklyShareCard(week: ChartWeek, kind: Kind, username: string, durationMode: import('./duration').DurationMode = 'weeks'): Promise<Blob | null> {
+  const { formatWeeks } = await import('./duration');
   const top10 = week.entries.slice(0, 10);
+  await Promise.all(top10.filter(item => !item.image).map(async item => { const media = await resolveCatalogMedia(item); if (media?.artworkUrl) item.image = media.artworkUrl; }));
   await prepareImages(top10);
   const canvas = document.createElement('canvas');
   const W = 1080;
@@ -800,7 +803,7 @@ export async function renderWeeklyShareCard(week: ChartWeek, kind: Kind, usernam
 
     ctx.fillStyle = '#22dc6e';
     ctx.font = `700 21px ${UI_FONT}`;
-    ctx.fillText(`${leader.plays} reproduções  ·  Pico #${leader.peak}  ·  ${leader.weeks} sem.`, 292, 422);
+    ctx.fillText(`${leader.plays} reproduções  ·  Pico #${leader.peak}  ·  ${formatWeeks(leader.weeks, durationMode)}`, 292, 422);
   }
 
   // Rows #2 - #10
@@ -854,7 +857,7 @@ export async function renderWeeklyShareCard(week: ChartWeek, kind: Kind, usernam
     ctx.fillText(`${entry.plays} plays`, W - 92, ry + 39);
     ctx.fillStyle = '#64748b';
     ctx.font = `600 17px ${UI_FONT}`;
-    ctx.fillText(`PK #${entry.peak} · ${entry.weeks}s`, W - 92, ry + 65);
+    ctx.fillText(`PK #${entry.peak} · ${formatWeeks(entry.weeks, durationMode)}`, W - 92, ry + 65);
     ctx.textAlign = 'left';
   });
 

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactElement } from 'react';
+import { useContext, useEffect, useMemo, useState, type ReactElement } from 'react';
 import { ArrowDownRight, ArrowUpRight, Download, Film, Fingerprint, History, Medal, Sparkles, Trophy, Users } from 'lucide-react';
 import type { CachedWeek, ChartWeek, Item, Kind, Settings, SourceFilter } from '../lib/types';
 import type { buildSpotlight } from '../lib/spotlight';
@@ -11,10 +11,14 @@ import { Cover, Empty, Modal, MusicLoader, number, useArtworkUrl } from './UI';
 import { Awards } from './Awards';
 import { Compare } from './Compare';
 import { MusicProfile } from './MusicProfile';
+import { Achievements } from './Achievements';
+import { AnnualRecords } from './AnnualRecords';
+import { Duration, DurationContext } from './Duration';
+import { formatWeeks } from '../lib/duration';
 import { GramophoneIcon } from './Gramophone';
 
 type SpotlightData=ReturnType<typeof buildSpotlight>;
-export type SpotlightTab='chart'|'awards'|'profile'|'records'|'insights'|'compare';
+export type SpotlightTab='chart'|'awards'|'profile'|'records'|'insights'|'compare'|'achievements';
 type Tab=SpotlightTab;
 export { GramophoneIcon } from './Gramophone';
 
@@ -22,6 +26,7 @@ export function Spotlight({charts,library,cached,settings,source,owner,namespace
   initialTab?:SpotlightTab;charts:ChartWeek[];library:Item[];cached:CachedWeek[];settings:Settings;source:SourceFilter;owner:string;namespace:string;initialYear:string;dark:boolean;reduced:boolean;kind:Kind;timezone:string;onClose:()=>void;
   onStudio:(ids:string[],title:string,charts:ChartWeek[],library:Item[],top:number)=>void;onDownload:(year:string)=>void;
 }){
+  const durationMode = useContext(DurationContext);
   const years=useMemo(()=>[...new Set(charts.map(chart=>chart.year))].sort((a,b)=>b-a),[charts]);
   const [year,setYear]=useState(initialYear),[tab,setTab]=useState<Tab>(initialTab);
   const key=`spotlight-name:v1:${namespace.toLowerCase()}`;
@@ -59,7 +64,7 @@ export function Spotlight({charts,library,cached,settings,source,owner,namespace
   const toBlob=async(canvas:HTMLCanvasElement,pdf:boolean)=>{const png=await new Promise<Blob>((resolve,reject)=>canvas.toBlob(value=>value?resolve(value):reject(new Error('Falha ao criar o card.')),'image/png'));return pdf?shareCardPDF(png):png;};
   const share=async(pdf:boolean,recordMode=false)=>{
     if(!data)return;setExporting(true);setError('');
-    try{const items=recordMode&&record?record.nominees.slice(0,1):data.ranking.slice(0,5);const canvas=await renderSpotlightCard({title,owner,period:range,items,dark,coverage,award:recordMode&&record?`${record.title} · ${number(record.value)} ${record.unit}${record.ties>1?' · empate':''}`:undefined});download(await toBlob(canvas,pdf),`lastchart-${recordMode?'recorde':'spotlight'}.${pdf?'pdf':'png'}`);}
+    try{const items=recordMode&&record?record.nominees.slice(0,1):data.ranking.slice(0,5);const canvas=await renderSpotlightCard({title,owner,period:range,items,dark,coverage,award:recordMode&&record?`${record.title} · ${['crown','top10','longevity','return'].includes(record.id) ? formatWeeks(record.value, durationMode) : `${number(record.value)} ${record.unit}`}${record.ties>1?' · empate':''}`:undefined});download(await toBlob(canvas,pdf),`lastchart-${recordMode?'recorde':'spotlight'}.${pdf?'pdf':'png'}`);}
     catch(e){setError(e instanceof Error?e.message:'Não foi possível exportar.');}finally{setExporting(false);}
   };
   const shareAward=async(card:RevealCard,pdf:boolean)=>{
@@ -67,7 +72,7 @@ export function Spotlight({charts,library,cached,settings,source,owner,namespace
     try{const canvas=await renderSpotlightCard({title,owner,period:range,items:card.winners.slice(0,1),dark,coverage,award:card.winners.length>1?`${card.category.label} · empate`:card.category.label,official:card.category.official,basis:card.method==='vote'?'voto pessoal':'sugestão aceita'});download(await toBlob(canvas,pdf),`lastchart-premio-${card.category.id}.${pdf?'pdf':'png'}`);}
     catch(e){setError(e instanceof Error?e.message:'Não foi possível exportar.');}
   };
-  const tabs:Array<[Tab,string,ReactElement]>=[['chart','Seu chart',<Trophy size={16}/>],['awards','Premiação',<GramophoneIcon size={19}/>],['profile','Seu perfil',<Fingerprint size={16}/>],['records','Recordes',<Medal size={16}/>],['insights','Insights',<Sparkles size={16}/>],['compare','Comparar',<Users size={16}/>]];
+  const tabs:Array<[Tab,string,ReactElement]>=[['chart','Seu chart',<Trophy size={16}/>],['awards','Premiação',<GramophoneIcon size={19}/>],['profile','Seu perfil',<Fingerprint size={16}/>],['records','Recordes',<Medal size={16}/>],['insights','Insights',<Sparkles size={16}/>],['compare','Comparar',<Users size={16}/>],['achievements','Conquistas',<Trophy size={16}/>]];
   return <Modal title="Charts & prêmios" subtitle="Spotlight · Seu universo musical, com uma assinatura só sua." onClose={onClose} wide className="spotlight-dialog" ambientImage={backdrop}>
     <div className="spotlight">
       <div className="spotlight-hero">{data?.ranking[0]&&<div className="spotlight-hero-art"><Cover item={data.ranking[0]} size="large"/></div>}<div className="spotlight-hero-copy"><span className="eyebrow"><Sparkles size={13}/> EDIÇÃO PESSOAL</span><h3>{title}</h3><p>{range}</p><small>Charts e prêmios pessoais; sem vínculo com Billboard ou Grammy.</small></div></div>
@@ -75,7 +80,8 @@ export function Spotlight({charts,library,cached,settings,source,owner,namespace
       <details className="period-help"><summary>Como criar meu chart ou minha premiação?</summary><p>Escolha a época. Em Seu chart, ajuste o Top e anime a edição. Em Premiação, escolha categorias com os nomes do Grammy, vote ou deixe o júri decidir, e comece a cerimônia. Seu perfil mostra seu tipo de ouvinte, selos e signo musical. Recordes mostram estatísticas do período; Insights, seus hábitos; Comparar, outro perfil no mesmo intervalo.</p></details>
       <div className="spotlight-tabs" role="tablist" aria-label="Conteúdo do Spotlight">{tabs.map(([value,label,icon])=><button type="button" role="tab" className={`button small ${tab===value?'primary':''}`} key={value} aria-selected={tab===value} onClick={()=>setTab(value)}>{icon}<span>{label}</span></button>)}</div>
       {error&&<p className="alert error" role="alert">{error}</p>}
-      {tab==='profile'?<MusicProfile cached={cached} settings={settings} source={source} library={library} owner={owner} dark={dark}/>:
+      {tab==='achievements'?<Achievements cached={cached} settings={settings} source={source}/>:
+      tab==='profile'?<MusicProfile cached={cached} settings={settings} source={source} library={library} owner={owner} dark={dark}/>:
       tab==='compare'?<Compare settings={settings} cached={cached} owner={settings.user} year={year} source={source} dark={dark}/>:
       tab==='awards'?<>{year==='all'&&<p className="note annual-awards-hint">Para os prêmios anuais, escolha um ano em Época. <button type="button" className="text-button" onClick={()=>setYear(String(years[0]))}>Usar {years[0]}</button></p>}<Awards profile={namespace} period={year} periodLabel={`${range} · ${coverage}`} title={title} pools={pools} stats={stats} meta={meta} window={year==='all'?null:data?.first?{start:data.first.start,end:Math.min(data.last!.end,Date.now()/1000),year:Number(year)}:null} apiKey={settings.apiKey} onMetaRefresh={reloadMeta} loading={!pools&&!poolError} error={poolError} reduced={reduced} onExport={shareAward}/></>:
       loading?<div className="spotlight-loading" role="status"><MusicLoader size="md"/><span>Preparando sua edição com dados reais…</span></div>:!data?.ranking.length?<Empty title="Esta edição ainda não tem dados" description={data?.missing?'Há semanas que ainda precisam ser baixadas. Isso não significa ausência de reproduções.':'Nenhuma reprodução encontrada nas semanas deste período e na fonte selecionada.'} action={<button type="button" className="button" onClick={()=>onDownload(year)}>Sincronizar este período</button>}/>:<>
@@ -86,8 +92,9 @@ export function Spotlight({charts,library,cached,settings,source,owner,namespace
           <ol className="spotlight-ranking">{data.ranking.slice(0,top).map((item,i)=><li key={item.id}><b>{String(i+1).padStart(2,'0')}</b><Cover item={item}/><div className="truncate"><strong>{item.name}</strong><small>{item.artist}</small></div><span>{number(item.plays)}<small>plays</small></span></li>)}</ol>
         </>}
         {tab==='records'&&<>
+          <AnnualRecords cached={cached} settings={settings} source={source} initialYear={year}/>
           <div className="awards-intro"><Medal size={40}/><div><h3>Recordes do período</h3><p>Estatísticas do seu histórico, com critérios públicos e empates compartilhados. Não são categorias do Grammy.</p></div></div>
-          <div className="award-grid">{data.awards.map((entry,i)=><article className={`award-card ${i===category?'is-selected':''}`} key={entry.id}><div className="award-artwork" aria-hidden="true"><Cover item={entry.nominees[0]} size="large"/></div><div className="award-card-top"><Medal size={22}/><span>{entry.title}</span></div><Cover item={entry.nominees[0]} size="large"/><h4>{entry.nominees[0].name}</h4><p>{entry.nominees[0].artist}</p><strong>{number(entry.value)} {entry.unit}</strong>{entry.ties>1&&<small>{entry.ties} empatados no primeiro lugar</small>}<details><summary>Critério e top 5</summary><p>{entry.rule}</p><ol>{entry.nominees.map(item=><li key={item.id}>{item.name} · {item.artist}</li>)}</ol></details><button type="button" className="text-button" onClick={()=>setCategory(i)}>{i===category?'Selecionado para o card':'Usar no card'}</button></article>)}</div>
+          <div className="award-grid">{data.awards.map((entry,i)=><article className={`award-card ${i===category?'is-selected':''}`} key={entry.id}><div className="award-artwork" aria-hidden="true"><Cover item={entry.nominees[0]} size="large"/></div><div className="award-card-top"><Medal size={22}/><span>{entry.title}</span></div><Cover item={entry.nominees[0]} size="large"/><h4>{entry.nominees[0].name}</h4><p>{entry.nominees[0].artist}</p><strong>{['crown','top10','longevity','return'].includes(entry.id) ? <Duration weeks={entry.value}/> : number(entry.value)} {['crown','top10','longevity','return'].includes(entry.id) ? entry.id === 'crown' ? 'em #1' : entry.id === 'top10' ? 'no Top 10' : entry.id === 'return' ? 'fora' : 'no chart' : entry.unit}</strong>{entry.ties>1&&<small>{entry.ties} empatados no primeiro lugar</small>}<details><summary>Critério e top 5</summary><p>{entry.rule}</p><ol>{entry.nominees.map(item=><li key={item.id}>{item.name} · {item.artist}</li>)}</ol></details><button type="button" className="text-button" onClick={()=>setCategory(i)}>{i===category?'Selecionado para o card':'Usar no card'}</button></article>)}</div>
         </>}
         {tab==='insights'&&<div className="spotlight-insights">
           <section className="insight-card"><h3>Seu pulso musical</h3><p>Últimas 12 semanas desta edição. Barras vazias com contorno indicam download pendente.</p><div className="listening-pulse" role="img" aria-label="Reproduções por semana">{data.pulse.map(chart=><div key={chart.id} className={chart.status==='missing'?'is-missing':''} title={`${chart.label}: ${chart.status==='missing'?'não baixada':`${number(chart.plays)} reproduções`}`}><i style={{height:`${chart.status==='missing'?12:Math.max(3,chart.plays/Math.max(1,...data.pulse.map(c=>c.plays))*100)}%`}}/><span>{chart.number}</span></div>)}</div></section>

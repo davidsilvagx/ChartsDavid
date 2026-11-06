@@ -6,6 +6,7 @@ import type { AliasRule, CachedWeek, Item, Kind, SourceFilter, Week } from './ty
 const kinds: Kind[] = ['tracks', 'albums', 'artists'];
 /** Até 400 obras por tipo e todos os artistas do período; estatísticas semanais para o júri automático. */
 export function buildPools(cached: CachedWeek[], deduplicate: boolean, aliases: AliasRule[] | undefined, source: SourceFilter, context?: { history: CachedWeek[]; calendar: Week[] }) {
+  cached = cached.filter(w => w.week.end <= Date.now() / 1000);
   const pools = Object.fromEntries(kinds.map(kind => { const items = getLibrary(cached, kind, deduplicate, aliases, source); return [kind, kind === 'artists' ? items : items.slice(0, 400)]; })) as Record<Kind, Item[]>;
   const stats = Object.fromEntries(kinds.map(kind => [kind, {} as Record<string, ItemStats>])) as Record<Kind, Record<string, ItemStats>>;
   if (!cached.length) return { pools, stats };

@@ -9,3 +9,6 @@ dist/
 coverage/
 artifacts/
 *.local
+
+.playwright-cli/
+output/playwright/

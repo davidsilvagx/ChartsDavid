@@ -1,5 +1,6 @@
 import { getMeta, putMeta } from './storage';
 import { normalize } from './charts';
+import { artistPhoto } from './artistPhoto';
 import type { Item } from './types';
 
 export interface CatalogMedia {
@@ -22,6 +23,7 @@ const memoryCache = new Map<string, CatalogMedia | null>();
 const inflight = new Map<string, Promise<CatalogMedia | null>>();
 
 function itemCacheKey(item: Pick<Item, 'id' | 'name' | 'artist' | 'album'>): string {
+  if (item.id.startsWith('["artists"')) return `catalog:v3:artist:${normalize(item.artist)}`;
   // v2 para álbuns: agora guardam a prévia de uma faixa do próprio álbum.
   return item.id.startsWith('["albums"') ? `catalog:v2:album:${normalize(item.artist)}::${normalize(item.name)}` : `catalog:v1:${normalize(item.artist)}::${normalize(item.name)}`;
 }
@@ -101,12 +103,13 @@ export async function resolveCatalogMedia(item: Pick<Item, 'id' | 'name' | 'arti
           results.find(r => artistMatches(r.artistName, item.artist) && titleMatches(r.trackName, item.name));
       }
 
-      const media: CatalogMedia | null = match
+      const portrait = isArtistItem ? await artistPhoto(item.artist) : '';
+      const media: CatalogMedia | null = match || portrait
         ? {
-            artworkUrl: match.artworkUrl || '',
-            previewUrl: match.previewUrl || '',
-            trackViewUrl: match.trackViewUrl || '',
-            trackName: match.trackName || item.name,
+            artworkUrl: isArtistItem ? portrait : match?.artworkUrl || '',
+            previewUrl: match?.previewUrl || '',
+            trackViewUrl: match?.trackViewUrl || '',
+            trackName: match?.trackName || item.name,
           }
         : null;
 

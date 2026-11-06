@@ -131,7 +131,7 @@ export function itemOf(raw: Scrobble, kind: Kind, aliases?: AliasRule[]): Omit<I
         ? [kind, normalize(s.artist), normalize(s.album)]
         : [kind, normalize(s.artist), normalize(s.track), normalize(s.album)],
   );
-  return { id, name, artist: s.artist, album: s.album, image: s.image };
+  return { id, name, artist: s.artist, album: kind === 'artists' ? '' : s.album, image: kind === 'artists' ? '' : s.image };
 }
 
 interface InternalHistory {

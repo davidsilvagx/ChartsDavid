@@ -34,7 +34,7 @@ export function Compare({ settings, cached, owner, year, source, dark }: { setti
   const controller = useRef<AbortController | null>(null);
   useEffect(() => () => controller.current?.abort(), []);
 
-  const weeks = useMemo(() => makeWeeks(settings), [settings.startDate, settings.timezone]);
+  const weeks = useMemo(() => makeWeeks(settings).filter(w => !w.partial), [settings.startDate, settings.timezone]);
   const range = useMemo(() => {
     const chosen = year === 'all' ? weeks.slice(-52) : weeks.filter(w => w.year === Number(year));
     return { weeks: chosen, start: chosen[0]?.start ?? 0, end: Math.min(chosen.at(-1)?.end ?? 0, Math.floor(Date.now() / 1000)) };

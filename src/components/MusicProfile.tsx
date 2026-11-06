@@ -12,6 +12,7 @@ import { download, shareCardPDF } from '../lib/export';
 import type { CachedWeek, Item, Settings, SourceFilter } from '../lib/types';
 import { Cover, MusicLoader, number, useArtworkUrl } from './UI';
 import { PersonaCrest } from './Emblems';
+import { PastSelf } from './PastSelf';
 
 type Unit = 'week' | 'month' | 'year' | 'all';
 const badgeIcons: Record<string, typeof Moon> = { owl: Moon, dawn: Sunrise, work: Sun, night: Moon, weekend: CalendarDays, nonstop: Zap, daily: Heart, occasional: Clock3, marathon: Flame, superfan: Heart, palette: Palette, radar: Radar, genre: Album, underground: Compass, between: Globe2, stadium: Users };
@@ -19,7 +20,7 @@ const skillIcons: Record<string, typeof Moon> = { devotion: Heart, constancy: Ca
 const pct = (v: number) => `${Math.round(v * 100)}%`;
 
 export function MusicProfile({ cached, settings, source, library, owner, dark }: { cached: CachedWeek[]; settings: Settings; source: SourceFilter; library: Item[]; owner: string; dark: boolean }) {
-  const weeks = useMemo(() => makeWeeks(settings).filter(w => cached.some(c => c.week.id === w.id)), [settings.startDate, settings.timezone, cached]);
+  const weeks = useMemo(() => makeWeeks(settings).filter(w => !w.partial && cached.some(c => c.week.id === w.id)), [settings.startDate, settings.timezone, cached]);
   const months = useMemo(() => [...new Set(weeks.map(w => w.id.slice(0, 7)))].sort().reverse(), [weeks]);
   const years = useMemo(() => [...new Set(weeks.map(w => w.year))].sort((a, b) => b - a), [weeks]);
   const [unit, setUnit] = useState<Unit>('year');
@@ -28,11 +29,12 @@ export function MusicProfile({ cached, settings, source, library, owner, dark }:
   const current = options.find(o => o.id === value) ?? options[0];
   const range = useMemo(() => {
     if (!current) return null;
+    const until = makeWeeks(settings).filter(w => !w.partial).at(-1)?.end ?? 0;
     const tz = settings.timezone, epoch = (d: Temporal.PlainDate) => Number(d.toZonedDateTime(tz).epochMilliseconds) / 1000;
     if (unit === 'week') { const w = weeks.find(x => x.id === current.id)!; return { start: w.start, end: Math.min(w.end, Date.now() / 1000) }; }
-    if (unit === 'month') { const d = Temporal.PlainDate.from(`${current.id}-01`); return { start: epoch(d), end: Math.min(epoch(d.add({ months: 1 })), Date.now() / 1000) }; }
-    if (unit === 'year') { const d = Temporal.PlainDate.from(`${current.id}-01-01`); return { start: epoch(d), end: Math.min(epoch(d.add({ years: 1 })), Date.now() / 1000) }; }
-    return { start: weeks[0]?.start ?? 0, end: Date.now() / 1000 };
+    if (unit === 'month') { const d = Temporal.PlainDate.from(`${current.id}-01`); return { start: epoch(d), end: Math.min(epoch(d.add({ months: 1 })), until) }; }
+    if (unit === 'year') { const d = Temporal.PlainDate.from(`${current.id}-01-01`); return { start: epoch(d), end: Math.min(epoch(d.add({ years: 1 })), until) }; }
+    return { start: weeks[0]?.start ?? 0, end: until };
   }, [current?.id, unit, weeks, settings.timezone]);
 
   const [result, setResult] = useState<ProfileResult | null>(null), [loading, setLoading] = useState(true), [error, setError] = useState('');
@@ -40,8 +42,8 @@ export function MusicProfile({ cached, settings, source, library, owner, dark }:
   const [popularity, setPopularity] = useState<Badge | null>(null), [measuring, setMeasuring] = useState(false), [exporting, setExporting] = useState(false);
   useEffect(() => { void loadMetadata('tracks').then(setTrackMeta).catch(() => {}); }, []);
   useEffect(() => {
-    if (!range) return;
-    let active = true; setLoading(true); setError(''); setPopularity(null);
+    if (!range) { setLoading(false); setResult(null); return; }
+    let active = true; setLoading(true); setError(''); setPopularity(null); setResult(null);
     const worker = new Worker(new URL('../workers/profile.worker.ts', import.meta.url), { type: 'module' });
     worker.onmessage = ({ data }) => { if (!active) return; setLoading(false); if (data.error) setError(data.error); else setResult(data.result); worker.terminate(); };
     worker.onerror = () => { if (active) { setLoading(false); setError('Não foi possível calcular o perfil.'); } worker.terminate(); };
@@ -90,26 +92,26 @@ export function MusicProfile({ cached, settings, source, library, owner, dark }:
         {heroArt && <div className="profile-hero-art" aria-hidden="true"><img src={heroArt} alt="" /></div>}
         <PersonaCrest code={result.code!} size={128} title={`Emblema: ${persona.name}`} />
         <div className="profile-hero-copy">
-          <span className="eyebrow"><Sparkles size={13} /> SEU PERFIL MUSICAL · {current?.label}</span>
+          <span className="eyebrow"><Sparkles size={13} /> MAIN CHARACTER ENERGY · {current?.label}</span>
           <h3>{persona.name}</h3>
           <p>{persona.tagline}</p>
-          <div className="profile-code">{(Object.keys(AXES) as AxisId[]).map((id, i) => <span key={id} title={result.axes[id] >= AXES[id].threshold ? AXES[id].highLabel : AXES[id].lowLabel}><b>{result.code![i]}</b>{result.axes[id] >= AXES[id].threshold ? AXES[id].highLabel : AXES[id].lowLabel}</span>)}</div>
+          <div className="profile-code">{(Object.keys(AXES) as AxisId[]).map(id => <span key={id}>{result.axes[id] >= AXES[id].threshold ? AXES[id].highLabel : AXES[id].lowLabel}</span>)}</div>
           <small>{owner} · {number(result.plays)} reproduções · {number(result.artists)} artistas · música em {result.activeDays} de {result.days} dias</small>
         </div>
       </section>
 
-      <section className="profile-axes" aria-label="Os quatro eixos">
+      <section className="profile-axes" aria-label="Seu jeito de dar play"><h4>Seu jeito de dar play</h4>
         {(Object.keys(AXES) as AxisId[]).map((id, i) => { const axis = AXES[id], v = result.axes[id], high = v >= axis.threshold; return <div className="axis-row" key={id} style={{ animationDelay: `${i * 90}ms` }}>
           <div className="axis-labels"><span className={!high ? 'on' : ''}>{axis.lowLabel}</span><span className={high ? 'on' : ''}>{axis.highLabel}</span></div>
           <div className="axis-track" role="img" aria-label={`${axis.metric}: ${pct(v)} (corte em ${pct(axis.threshold)})`}><i style={{ ['--v' as string]: `${Math.min(100, v * 100)}%` }} /><b style={{ left: `${axis.threshold * 100}%` }} /></div>
-          <small>{axis.metric}: <strong>{pct(v)}</strong> · corte em {pct(axis.threshold)}</small>
+          <small>{axis.metric}: <strong>{pct(v)}</strong></small>
         </div>; })}
       </section>
 
       {sign && signTarget && <section className="sign-card" aria-label="Signo musical">
         <div className="sign-head"><div className="sign-cover"><Cover item={signTarget} size="large" /></div><div><span className="eyebrow"><Gauge size={13} /> SEU SIGNO MUSICAL</span><h3>{sign.artist}</h3><p>{sign.reason}</p></div></div>
         <SkillTree sign={sign} target={signTarget} />
-        <small className="note">O signo é escolhido entre os seus 12 artistas mais ouvidos no período: 55% pela fatia de reproduções e 45% pela semelhança entre como você ouve esse artista e como ouve música em geral.</small>
+        <details className="period-help"><summary>Por que essa diva é a minha cara?</summary><p>Entre seus 12 artistas mais ouvidos, combinamos o quanto você ouve cada um (55%) com a semelhança dos seus hábitos (45%). Os números vêm do seu histórico.</p></details>
       </section>}
 
       <section className="profile-badges" aria-label="Selos">
@@ -124,6 +126,7 @@ export function MusicProfile({ cached, settings, source, library, owner, dark }:
         <small>{pct(result.weekendShare)} no fim de semana · maior sequência: {result.streak.count} plays de {result.streak.artist}</small>
       </section>
 
+      <PastSelf cached={cached} settings={settings} source={source}/>
       <details className="period-help"><summary>Os 16 perfis e como calculamos</summary>
         <p>Cada eixo compara uma medida dos seus scrobbles com um corte fixo (mostrado nas barras). A combinação dos quatro dá um dos 16 perfis. Os selos usam horários no seu fuso, dias com música, sequências e, quando disponíveis, gêneros verificados e ouvintes do Last.fm. Nada é inventado: sem dados suficientes, o perfil não é calculado.</p>
         <div className="persona-gallery">{Object.entries(PERSONAS).map(([code, p]) => <div key={code} className={code === result.code ? 'is-you' : ''}><PersonaCrest code={code} size={54} animate={false} /><span><strong>{p.name}</strong><small>{code} · {p.tagline}</small></span></div>)}</div>

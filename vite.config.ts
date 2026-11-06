@@ -6,6 +6,7 @@ import { itunesProxy } from './netlify/functions/itunes.mjs';
 import { handleSync, memoryStore, storeFromEnv } from './server/sync.mjs';
 import { handlePush, memoryPushStore, pushStoreFromEnv } from './server/push.mjs';
 import { handleCareer } from './server/career.mjs';
+import { handleArtistPhoto } from './server/artist-photo.mjs';
 import webpush from 'web-push';
 import type { Connect } from 'vite';
 
@@ -22,6 +23,7 @@ function mountApi(middlewares: Connect.Server, env: Record<string, string>) {
   middlewares.use('/api/lastfm', async (req, res) => send(res, await lastfmProxy(new URL(req.url ?? '/', 'http://localhost').search, env.LASTFM_API_KEY)));
   middlewares.use('/api/itunes', async (req, res) => send(res, await itunesProxy(new URL(req.url ?? '/', 'http://localhost').search)));
   middlewares.use('/api/career', async (req, res) => send(res, await handleCareer(await toRequest(req))));
+  middlewares.use('/api/artist-photo', async (req, res) => send(res, await handleArtistPhoto(await toRequest(req))));
   middlewares.use('/api/sync', async (req, res) => send(res, await handleSync(await toRequest(req), await syncStorePromise)));
   middlewares.use('/api/push-cron', async (req, res) => send(res, await handlePush(await toRequest(req), env, await pushStorePromise, webpush)));
   middlewares.use('/api/push', async (req, res) => send(res, await handlePush(await toRequest(req), env, await pushStorePromise, webpush)));

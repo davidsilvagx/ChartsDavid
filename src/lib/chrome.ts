@@ -54,6 +54,8 @@ function apply() {
   if (typeof document === 'undefined') return;
   const top = overlays.length ? overlays[overlays.length - 1](base) : base;
   document.documentElement.style.setProperty('--chrome', base);
+  document.documentElement.style.setProperty('--system-chrome', top);
+  document.documentElement.style.colorScheme = document.documentElement.dataset.theme === 'light' ? 'light' : 'dark';
   document.querySelectorAll('meta[name="theme-color"]').forEach(meta => meta.setAttribute('content', top));
 }
 export function setChromeBase(color: string) { base = color; apply(); }

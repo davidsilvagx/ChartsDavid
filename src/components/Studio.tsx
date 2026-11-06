@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { studioDefaults, type ChartWeek, type Item, type Kind, type StudioSettings } from '../lib/types';
 import { trimTimeline } from '../lib/charts';
+import { gapTimeline, playbackMap } from '../lib/timeline';
 import { cacheImageUrl, drawChart, palettes, prepareImages } from '../lib/canvas';
 import { resolveCatalogMedia } from '../lib/catalog';
 import { createLeaderResolver, LeaderAudioSession, resolveClipBank, type AudioStatus } from '../lib/leaderAudio';
@@ -148,7 +149,10 @@ export function Studio({
   const automaticItems = useMemo(() => {const ids=new Set(automaticIds);return library.filter(item=>ids.has(item.id));},[library,automaticIds]);
   const selectedItems = useMemo(() => settings.mode === 'bars' && autoBars ? automaticItems : library.filter(i => selected.includes(i.id)), [library,selected,automaticItems,settings.mode,autoBars]);
   const selectedSet = useMemo(() => new Set(selectedItems.map(i=>i.id)), [selectedItems]);
-  const timeline = useMemo(() => preserveRange || (settings.mode === 'bars' && autoBars) ? charts : trimTimeline(charts, [...selectedSet]), [charts,selectedSet,settings.mode,autoBars,preserveRange]);
+  const baseTimeline = useMemo(() => preserveRange || (settings.mode === 'bars' && autoBars) ? charts : trimTimeline(charts, [...selectedSet]), [charts,selectedSet,settings.mode,autoBars,preserveRange]);
+  const timeline = useMemo(() => settings.mode === 'lines' ? gapTimeline(baseTimeline, [...selectedSet], settings.gapMode) : baseTimeline, [baseTimeline, selectedSet, settings.mode, settings.gapMode]);
+  const playback = useMemo(() => playbackMap(timeline, [...selectedSet], settings.mode === 'lines' && settings.gapMode === 'accelerate'), [timeline, selectedSet, settings.mode, settings.gapMode]);
+  useEffect(() => { setPlaying(false); setPosition(0); positionRef.current = 0; }, [settings.gapMode]);
   const leaderAt=useMemo(()=>settings.leaderAudio?createLeaderResolver(timeline,selectedItems,settings):()=>null,[timeline,selectedItems,settings.mode,settings.barMetric,settings.leaderAudio]);
   const leaderRef=useRef(leaderAt);leaderRef.current=leaderAt;
   const setSelected = (action: SetStateAction<string[]>) => {
@@ -300,7 +304,7 @@ export function Studio({
       const delta = (Math.min(now - last, 80) / 1000) * settings.speed;
       last = now;
       const maxPos = timeline.length - 1;
-      const next = Math.min(maxPos, positionRef.current + delta);
+      const next = Math.min(maxPos, playback.advance(positionRef.current, delta));
       positionRef.current = next;
 
       // Paint directly on Canvas without React reconciliation
@@ -326,7 +330,7 @@ export function Studio({
       cancelAnimationFrame(frame);
       setPosition(positionRef.current);
     };
-  }, [playing, timeline.length, settings.speed, settings.previewFps, settings.leaderAudio]);
+  }, [playing, timeline.length, settings.speed, settings.previewFps, settings.leaderAudio, playback]);
 
   useEffect(() => {
     if (sliderRef.current) sliderRef.current.value = String(position);
@@ -494,12 +498,12 @@ export function Studio({
       source?.start();
 
       const start = performance.now();
-      const duration = Math.max(2, (timeline.length - 1) / settings.speed + 1);
+      const duration = Math.max(2, playback.duration / settings.speed + 1);
       let lastPreview=0,lastProgress=0;
       const tick = (now: number) => {
         if (controller.signal.aborted) return;
         const elapsed = (now - start) / 1000;
-        const p = Math.min(timeline.length - 1, elapsed * settings.speed);
+        const p = playback.at(elapsed * settings.speed);
         drawChart(ctx, w, h, { charts: timeline, items: selectedItems, settings, position: p, dark: useDarkCanvas, reduced, username, kind });
         if(leaderRecording)void leaderRecording.setLeader(leaderAt(p));
         positionRef.current = p;
@@ -1014,6 +1018,7 @@ export function Studio({
             </label>
             <label>Fluidez da prévia<select aria-label="Fluidez da prévia" value={settings.previewFps ?? 'auto'} onChange={e=>update('previewFps',e.target.value==='auto'?undefined:Number(e.target.value) as 30|60)}><option value="auto">Automática · 30 fps no celular</option><option value="30">30 fps · menor consumo</option><option value="60">60 fps · maior fluidez</option></select><small>A exportação de vídeo mantém 60 fps.</small></label>
 
+            {settings.mode === 'lines' && <label>Quando todo mundo sai do chart<select aria-label="Intervalos sem presença no chart" value={settings.gapMode ?? 'keep'} disabled={recording} onChange={e => update('gapMode', e.target.value as StudioSettings['gapMode'])}><option value="keep">Manter todo o intervalo · original</option><option value="accelerate">Acelerar intervalos vazios em 8×</option><option value="compact">Compactar · mostrar início e fim da ausência</option><option value="skip">Pular · manter só um quadro OUT</option></select><small>Opcional, na prévia e no vídeo exportado. Só afeta trechos sem nenhum dos itens selecionados no Top. Semanas não baixadas nunca são puladas. Datas reais são preservadas.</small></label>}
             <label>
               Paleta cromática
               <select value={settings.palette} onChange={e => update('palette', e.target.value as StudioSettings['palette'])}>
