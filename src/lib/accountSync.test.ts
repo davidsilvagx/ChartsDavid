@@ -15,6 +15,8 @@ import {
   captureWorkspace,
   switchWorkspacePreferences,
   workspaceOwner,
+  rememberLoginIntent,
+  hasLoginIntent,
 } from "./accountWorkspace";
 import { databaseName } from "./storage";
 const snapshot = (
@@ -131,6 +133,13 @@ class MemoryStorage implements Storage {
     this.data.clear();
   }
 }
+it('preserves an explicit migration choice across email confirmation, bound to the same account and time window',()=>{
+ const storage=new MemoryStorage();rememberLoginIntent(true,'Fan@Example.test',storage);
+ expect(hasLoginIntent('fan@example.test',storage)).toBe(true);
+ expect(hasLoginIntent('another@example.test',storage)).toBe(false);
+ rememberLoginIntent(false,'fan@example.test',storage);expect(hasLoginIntent('fan@example.test',storage)).toBe(false);
+ storage.setItem('lastchart-account:login-intent',JSON.stringify({carry:true,email:'fan@example.test',expires:0}));expect(hasLoginIntent('fan@example.test',storage)).toBe(false);
+});
 it("separates account preferences and restores the original guest workspace without copying session tokens", () => {
   const storage = new MemoryStorage(),
     a = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
