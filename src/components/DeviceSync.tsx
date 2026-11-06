@@ -1,3 +1,4 @@
+import QRCode from 'qrcode';
 import { useEffect, useRef, useState } from 'react';
 import { CloudDownload, CloudUpload, Copy, FileDown, FileUp, KeyRound, Link2, LogOut, QrCode, ShieldCheck, Square, Trash2 } from 'lucide-react';
 import { applyProject, collectProject, decryptProject, deleteRemote, deriveAccount, diffProjects, downloadClip, fetchRemote, generateSyncKey, mergeProjects, normalizeSyncKey, parseProject, pushRemote, readSyncState, sha256Hex, SyncError, uploadClip, writeSyncState, type ProjectFile, type SyncAccount, type SyncState } from '../lib/projectSync';
@@ -11,7 +12,8 @@ import { MusicLoader } from './UI';
 export function DeviceSync({ timezone, onError, onNotice }: { timezone: string; onError: (s: string) => void; onNotice: (s: string) => void }) {
   const [state, setState] = useState<SyncState | null>(readSyncState);
   const [draftKey, setDraftKey] = useState(''), [newKey, setNewKey] = useState(''), [busy, setBusy] = useState(''), [progress, setProgress] = useState<{ sent: number; total: number } | null>(null);
-  const [showQR, setShowQR] = useState(false);
+  const [showQR, setShowQR] = useState(false), [qrImage, setQrImage] = useState('');
+  useEffect(() => { let active = true; setQrImage(''); if (showQR && state?.key) void QRCode.toDataURL(`${location.origin}/?sync=${encodeURIComponent(state.key)}`, { width: 240, margin: 2, errorCorrectionLevel: 'M' }).then(url => { if(active)setQrImage(url); }).catch(() => {}); return () => { active = false; }; }, [showQR, state?.key]);
   const [remoteInfo, setRemoteInfo] = useState<{ device: string; updatedAt: number; usage: number; quota: number } | null>(null), [unavailable, setUnavailable] = useState('');
   const [conflict, setConflict] = useState<{ remote: ProjectFile; revision: number; local: ProjectFile; changes: number } | null>(null);
   const controller = useRef<AbortController | null>(null);
@@ -150,7 +152,7 @@ export function DeviceSync({ timezone, onError, onNotice }: { timezone: string; 
 
       {showQR && (
         <div className="sync-qr-box" style={{ display: 'grid', justifyItems: 'center', gap: 10, padding: 18, background: 'var(--surface-alt)', borderRadius: 18, margin: '12px 0', border: '1px solid var(--line)' }}>
-          <img src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&margin=8&data=${encodeURIComponent(`${window.location.origin}/?sync=${state.key}`)}`} alt="QR Code de sincronização" width="200" height="200" style={{ borderRadius: 14, background: 'white', padding: 8, boxShadow: '0 4px 16px rgba(0,0,0,0.12)' }} />
+          {qrImage ? <img src={qrImage} alt="QR Code de sincronização" width="200" height="200" style={{borderRadius:14, background:'white', padding:8}}/> : <p role="status">Criando QR Code neste aparelho…</p>}
           <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text)', textAlign: 'center', fontWeight: 600 }}>Aponte a câmera do seu celular ou tablet para abrir e sincronizar automaticamente.</p>
           <small style={{ color: 'var(--muted)', textAlign: 'center' }}>Não precisa digitar a chave: seus charts e preferências abrem prontinhos no novo aparelho.</small>
         </div>
