@@ -24,6 +24,12 @@ export const supabase = createClient(
     },
   },
 );
+// A signup code confirms the email without opening the main app session.
+export const verificationClient = () => createClient(
+  import.meta.env.VITE_SUPABASE_URL || "https://qyzelexnjoquhrlcelvz.supabase.co",
+  import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || "sb_publishable_nmcr3oTT40jamGIeP9Vgvw_RP4CaNEB",
+  { auth:{persistSession:false,autoRefreshToken:false,detectSessionInUrl:false,storageKey:"lastchart-verification-only"},global:{fetch:(input,init)=>fetch(input,{...init,signal:AbortSignal.timeout(30000)})} },
+);
 export const authRedirect = () => `${location.origin}/?account=callback`;
 export function accountError(error: unknown): string {
   const code = (error as { code?: string })?.code;
