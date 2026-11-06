@@ -26,8 +26,24 @@ Antes da implementação de contas são necessários projeto do provedor, domín
 
 A recuperação de senha da conta não recupera automaticamente uma chave de cifragem ponta a ponta. É necessário escolher entre dados autorizados pelo servidor ou uma chave de recuperação/encapsulamento por aparelho. Essa decisão deve estar clara no produto antes de prometer recuperação de histórico.
 
-Login não foi adicionado nesta entrega: este item pede avaliação técnica, e uma tela sem provedor configurado simularia uma segurança inexistente.
+Na avaliação inicial, o login ainda não havia sido implementado. A seção “Implementação de contas” abaixo descreve a implementação posterior e substitui essa limitação.
 
 ## Tema do sistema nos tablets
 
 O aplicativo atualiza `theme-color`, `color-scheme` e a cor do fundo sob a área segura. Também declara o modo standalone Apple e a barra translúcida. A API web não controla todas as barras do sistema: em iPadOS, o comportamento depende da versão, do modo instalado e do navegador. A validação no Opera desktop com dimensões de tablet não substitui um teste em iPad/Android físico. Referências: [Apple · meta tags](https://developer.apple.com/library/archive/documentation/AppleApplications/Reference/SafariHTMLRef/Articles/MetaTags.html), [web.dev · melhorias em PWAs](https://web.dev/learn/pwa/enhancements).
+
+## Implementação de contas (novembro de 2026)
+
+Escolha: adaptar o app ao Supabase Auth + Postgres + Storage privado. Um serviço pronto cuida de senha, confirmação, recuperação e renovação de sessão; o código existente de projeto preserva os formatos e histórico. Construir autenticação própria sobre Blob exigiria assumir armazenamento de senha, recuperação, abuso e revogação de sessões; Clerk também é uma alternativa pronta, mas precisaria de um armazenamento separado e adicionaria outro fornecedor. Custos dependem de usuários ativos, espaço e tráfego; confirmar os planos atuais antes de aumentar a escala: https://supabase.com/pricing.
+
+A chave `sb_publishable_…` é pública por definição. Não há `service_role` no cliente. As políticas de linha e de objetos restringem cada conta ao UUID da própria sessão; a gravação da revisão usa uma função com verificação de dono e compare-and-swap para evitar sobrescrever outro aparelho. Os arquivos são imutáveis e comprimidos; cada download confere SHA-256. Não é anunciado como criptografia ponta a ponta: o provedor mantém o backup privado com autorização e transporte seguro. O modo anterior com chave cifrada e QR/link permanece disponível.
+
+Cada conta utiliza um banco IndexedDB e um conjunto de preferências próprios. Ao entrar, o usuário escolhe se quer levar o conteúdo do modo convidado; o original fica preservado. Ao sair, o app restaura o espaço convidado. Tokens de Spotify/Google e senhas não entram no backup. A chave Last.fm entra deliberadamente no backup privado, atendendo ao pedido de continuidade entre aparelhos. Os áudios são sincronizados por hash, sem misturar contas.
+
+A sincronização compara alterações com a última base, combina históricos compatíveis sem duplicar plays e pede uma escolha quando o mesmo ajuste muda nos dois aparelhos. Alterações offline permanecem no IndexedDB e são reenviadas ao reconectar. O backup tem limite de 64 MiB comprimidos; acima disso a UI mantém os dados locais e informa a limitação. Arquivos de revisões anteriores permanecem privados para recuperação e poderão precisar de uma política de retenção conforme o uso crescer.
+
+Requisitos de produção: executar `supabase/migrations/202611060001_account_snapshots.sql`, manter confirmação de e-mail, configurar URLs de retorno da produção/localhost de desenvolvimento e SMTP próprio. O SMTP padrão do Supabase restringe destinatários aos membros do projeto e não é indicado para produção: https://supabase.com/docs/guides/auth/auth-smtp. O fluxo PKCE requer abrir o link de recuperação no navegador em que ele foi solicitado; em outro aparelho, peça um novo link naquele navegador.
+
+Configuração aplicada: migrações 001 e 002, confirmação obrigatória, senha mínima de 12 caracteres, URLs exatas de produção e desenvolvimento, SMTP Brevo e remetente verificado. Confirmação e recuperação tiveram entrega real em QA. O remetente gratuito usa reescrita de domínio do Brevo; domínio próprio continua uma evolução possível. A chave SMTP deve ser renovada antes da validade exibida pelo provedor e pode expirar por inatividade. Nenhuma chave privada foi adicionada ao repositório.
+
+A revisão conflitante usa `PT409`: o código `40001` é reservado a falhas de serialização e provocava repetição interna no PostgREST 14. O teste HTTP confirmou resposta 409 rápida após a correção. Referência: [Supabase · retries com códigos customizados](https://supabase.com/kb/troubleshooting/high-cpu-and-infinite-transaction-retries-when-using-custom-error-codes-in-rpc-functions).
