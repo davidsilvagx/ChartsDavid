@@ -1,6 +1,8 @@
 import { StrictMode, Component, useEffect, useState, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
+import { installAuthenticatedFetch } from './lib/authenticatedFetch';
+installAuthenticatedFetch();
 import { AccountProvider } from './components/AccountProvider';
 function AccountWorkspaceApp(){const [revision,setRevision]=useState(0);useEffect(()=>{const applied=()=>setRevision(n=>n+1);window.addEventListener('lastchart-account-applied',applied);return()=>window.removeEventListener('lastchart-account-applied',applied);},[]);return <App key={revision}/>;}
 class ErrorBoundary extends Component<{children:ReactNode},{failed:boolean}> {
