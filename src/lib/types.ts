@@ -137,8 +137,21 @@ export interface StudioSettings {
   colors: Record<string, string>;
 }
 
+export const DEMO_USER = 'Iknowjauregui';
+export const CUSTOM_USER_KEY = 'lastchart-studio:custom-user:v1';
+
+export function isGuestProfile(user: string): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    if (localStorage.getItem(CUSTOM_USER_KEY) === '1') return false;
+  } catch {
+    /* ignore */
+  }
+  return user.trim().toLowerCase() === DEMO_USER.toLowerCase();
+}
+
 export const defaults: Settings = {
-  user: 'Iknowjauregui',
+  user: DEMO_USER,
   startDate: '2016-06-24',
   timezone: 'UTC',
   theme: 'dark',

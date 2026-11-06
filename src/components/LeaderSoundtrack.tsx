@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { FolderOpen, Headphones, Info, Music2, Trash2, Upload, Volume2, Wand2 } from 'lucide-react';
+import { CheckCircle2, FolderOpen, Headphones, Info, Music2, Pause, Play, Trash2, Upload, Volume2, Wand2 } from 'lucide-react';
 import { getMeta, putMeta } from '../lib/storage';
 import { audioModeLabels, inspectAudioClip, type AudioStatus, type ClipBank, type LeaderAudioMode } from '../lib/leaderAudio';
 import { matchAudioFiles, readAudioTags, type FileMatch } from '../lib/audioMatch';
@@ -22,42 +22,151 @@ export function LeaderSoundtrack({items,clips,autoClips,mode,onMode,onSaveAuto,l
   items:Item[];clips:ClipBank;autoClips:ClipBank;mode:LeaderAudioMode;onMode:(m:LeaderAudioMode)=>void;onSaveAuto:(value:ClipBank)=>Promise<void>;loading:boolean;error:string;enabled:boolean;volume:number;status:AudioStatus;
   onEnabled:(value:boolean)=>void;onVolume:(value:number)=>void;onSave:(value:ClipBank)=>Promise<void>;disabled:boolean;
 }){
-  const [open,setOpen]=useState(false),[auto,setAuto]=useState(false),[query,setQuery]=useState(''),[uploading,setUploading]=useState<string|null>(null),[failure,setFailure]=useState('');
-  const visible=useMemo(()=>items.filter(item=>`${item.name} ${item.artist}`.toLowerCase().includes(query.toLowerCase())).slice(0,50),[items,query]);
+  const [auto,setAuto]=useState(false),[uploading,setUploading]=useState<string|null>(null),[failure,setFailure]=useState('');
+  const [previewingId,setPreviewingId]=useState<string|null>(null);
+  const previewAudioEl=useRef<HTMLAudioElement|null>(null);
   const current=items.find(item=>item.id===status.id);
   const source=status.id?(mode!=='auto'&&clips[status.id]?clips[status.id]:mode!=='manual'?autoClips[status.id]:undefined):undefined;
   const autoCount=items.filter(item=>autoClips[item.id]).length,manualCount=Object.keys(clips).length;
+
+  const togglePreview=(id:string,file?:File)=>{
+    if(previewingId===id){previewAudioEl.current?.pause();setPreviewingId(null);return;}
+    if(!file)return;
+    if(previewAudioEl.current){previewAudioEl.current.pause();try{URL.revokeObjectURL(previewAudioEl.current.src);}catch{/* ignore */}}
+    const url=URL.createObjectURL(file);
+    const audio=new Audio(url);
+    previewAudioEl.current=audio;
+    audio.onended=()=>setPreviewingId(null);
+    audio.onerror=()=>setPreviewingId(null);
+    setPreviewingId(id);
+    audio.play().catch(()=>setPreviewingId(null));
+  };
+
+  useEffect(()=>()=>{
+    if(previewAudioEl.current){previewAudioEl.current.pause();try{URL.revokeObjectURL(previewAudioEl.current.src);}catch{/* ignore */}}
+  },[]);
+
   const upload=async(id:string,file:File|undefined)=>{
     if(!file)return;setUploading(id);setFailure('');
-    try{if(!clips[id]&&Object.keys(clips).length>=24)throw new Error('Você pode guardar 24 trechos por perfil. Remova um antes de adicionar outro.');const clip=await inspectAudioClip(file);await onSave({...clips,[id]:{...clip,origin:'manual'}});}
-    catch(e){setFailure(e instanceof Error?e.message:'Não foi possível salvar. Confira o espaço do aparelho.');}
+    try{
+      if(!clips[id]&&Object.keys(clips).length>=50)throw new Error('Você pode guardar até 50 trechos. Remova um antes de adicionar outro.');
+      const clip=await inspectAudioClip(file);
+      await onSave({...clips,[id]:{...clip,origin:'manual'}});
+    }
+    catch(e){setFailure(e instanceof Error?e.message:'Não foi possível salvar o trecho. Confira o formato do arquivo.');}
     finally{setUploading(null);}
   };
-  const message=loading?'Lendo trechos do aparelho…':status.phase==='playing'?`Tocando #1 · ${current?.name??'trecho local'}${source?` · ${source.origin==='auto'?'automático':'manual'}`:''}`:status.phase==='loading'?`Preparando ${current?.name??'o trecho'}…`:status.phase==='missing'?`Sem ${mode==='manual'?'trecho manual':'arquivo local correspondente'} para ${current?.name??'este líder'}. O vídeo segue em silêncio.`:status.phase==='error'?status.message:status.phase==='paused'?'Áudio pausado junto com o vídeo.':'Associe os arquivos e toque em Play. Sem #1 no chart, o som fica em silêncio.';
+
+  const removeClip=async(id:string)=>{
+    const next={...clips};
+    delete next[id];
+    try{await onSave(next);}catch{setFailure('Não foi possível remover o trecho.');}
+  };
+
+  const message=loading?'Lendo trechos do aparelho…':status.phase==='playing'?`Tocando #1 · ${current?.name??'música líder'}${source?` (${source.origin==='auto'?'automático':'trecho manual'})`:' (prévia oficial do catálogo)'}`:status.phase==='loading'?`Preparando ${current?.name??'o áudio'}…`:status.phase==='missing'?`Sem áudio para ${current?.name??'este líder'}. Envie um trecho manual abaixo ou ative o modo automático.`:status.phase==='error'?status.message:status.phase==='paused'?'Áudio pausado junto com o vídeo.':'Dê Play para ouvir. Quando a música alcançar o #1, seu trecho toca automaticamente.';
+
   return <>
     <div className="leader-soundtrack">
-      <div className="leader-soundtrack-heading"><Headphones size={19}/><div><strong>Trilha do #1</strong><small>O trecho acompanha quem lidera, nas linhas e nas barras, e troca quando outro assume.</small></div><label className="switch-row"><input type="checkbox" aria-label="Ativar trilha do primeiro lugar" checked={enabled} disabled={disabled||loading} onChange={e=>onEnabled(e.target.checked)}/><span>{enabled?'Ativada':'Desativada'}</span></label></div>
+      <div className="leader-soundtrack-heading">
+        <Headphones size={19}/>
+        <div>
+          <strong>Trilha do #1</strong>
+          <small>O trecho de áudio acompanha quem lidera a parada e troca sozinho assim que outro assume o topo.</small>
+        </div>
+        <label className="switch-row">
+          <input type="checkbox" aria-label="Ativar trilha do primeiro lugar" checked={enabled} disabled={disabled||loading} onChange={e=>onEnabled(e.target.checked)}/>
+          <span>{enabled?'Ativada':'Desativada'}</span>
+        </label>
+      </div>
+
       {enabled&&<>
-        <div className="segmented compact-seg audio-mode" role="group" aria-label="Modo da trilha">{(Object.keys(audioModeLabels) as LeaderAudioMode[]).map(m=><button key={m} type="button" className={mode===m?'selected':''} aria-pressed={mode===m} disabled={disabled} onClick={()=>onMode(m)}>{audioModeLabels[m]}</button>)}</div>
-        <small className="audio-mode-help">{mode==='manual'?'Toca só os trechos que você escolheu item por item.':mode==='auto'?'Associa sozinho os arquivos da sua biblioteca local pelo artista e título das etiquetas.':'Automático pela biblioteca local; quando houver trecho manual, ele tem prioridade.'}</small>
-        <div className="leader-audio-status" role="status" aria-live="polite">{(loading||status.phase==='loading')&&<MusicLoader size="sm"/>}<span>{message}</span></div>
+        <div className="segmented compact-seg audio-mode" role="group" aria-label="Modo da trilha">
+          {(Object.keys(audioModeLabels) as LeaderAudioMode[]).map(m=><button key={m} type="button" className={mode===m?'selected':''} aria-pressed={mode===m} disabled={disabled} onClick={()=>onMode(m)}>{audioModeLabels[m]}</button>)}
+        </div>
+        <small className="audio-mode-help">
+          {mode==='manual'?'Toca exclusivamente os trechos que você enviar para cada música do Top abaixo.'
+            :mode==='auto'?'Toca automaticamente a prévia oficial do catálogo assim que a faixa assume a liderança.'
+            :'Combina as duas: usa seu trecho manual quando houver e a prévia oficial nas demais.'}
+        </small>
+
+        <div className="leader-audio-status" role="status" aria-live="polite">
+          {(loading||status.phase==='loading')&&<MusicLoader size="sm"/>}
+          <span>{message}</span>
+        </div>
+
         <div className="leader-audio-actions">
-          {mode!=='auto'&&<button type="button" className="button small" disabled={disabled} onClick={()=>setOpen(true)}><Music2 size={16}/><span>Trechos manuais · {manualCount}</span></button>}
-          {mode!=='manual'&&<button type="button" className="button small" disabled={disabled} onClick={()=>setAuto(true)}><Wand2 size={16}/><span>Associar biblioteca · {autoCount}/{items.length}</span></button>}
+          {mode!=='manual'&&<button type="button" className="button small" disabled={disabled} onClick={()=>setAuto(true)}><Wand2 size={16}/><span>Associar pasta local · {autoCount}/{items.length}</span></button>}
           <label className="audio-volume"><Volume2 size={15}/><span>Volume</span><input aria-label="Volume da trilha do primeiro lugar" type="range" min="0" max="1" step="0.05" value={volume} disabled={disabled} onChange={e=>onVolume(Number(e.target.value))}/></label>
         </div>
-        <small>Seus arquivos ficam neste aparelho e entram na prévia e no vídeo baixado. <Info size={12}/> As prévias de 30 s do catálogo (iTunes) só tocam no player: as regras da Apple proíbem sincronizá-las com vídeo.</small>
+
+        {failure&&<p className="alert error" role="alert">{failure}</p>}
+
+        {/* Lista direta dos competidores do Top para subir trecho por música */}
+        <div className="leader-competitors-section">
+          <div className="leader-competitors-header">
+            <div>
+              <strong>Músicas do Top ({items.length})</strong>
+              <small>Envie o trecho de áudio para cada concorrente. O app reconhece a música e toca na liderança.</small>
+            </div>
+            {manualCount>0&&<span className="competitors-badge"><CheckCircle2 size={13}/> {manualCount} com áudio</span>}
+          </div>
+
+          {!items.length?<p className="note">Nenhum competidor selecionado no vídeo.</p>:
+            <div className="leader-competitor-list">
+              {items.slice(0,25).map((item,index)=>{
+                const hasManual=!!clips[item.id];
+                const hasAuto=!hasManual&&!!autoClips[item.id];
+                const clip=clips[item.id]||autoClips[item.id];
+                const isPlayingThis=previewingId===item.id;
+
+                return (
+                  <div className={`leader-competitor-card ${hasManual?'has-manual':hasAuto?'has-auto':''}`} key={item.id}>
+                    <span className="competitor-rank">#{index+1}</span>
+                    <Cover item={item}/>
+                    <div className="competitor-meta truncate">
+                      <strong className="truncate">{item.name}</strong>
+                      <small className="truncate">{item.artist}</small>
+                      <div className="competitor-tag-row">
+                        {hasManual?(
+                          <span className="clip-tag manual"><CheckCircle2 size={11}/> {clip?.name||'Trecho'} ({Math.round(clip?.duration||0)}s)</span>
+                        ):hasAuto?(
+                          <span className="clip-tag auto"><Wand2 size={11}/> Automático</span>
+                        ):mode!=='manual'?(
+                          <span className="clip-tag auto-fallback"><Headphones size={11}/> Prévia automática</span>
+                        ):(
+                          <span className="clip-tag missing">Sem trecho manual</span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="competitor-actions">
+                      {hasManual&&clip?.file&&(
+                        <button type="button" className={`icon-button preview-btn ${isPlayingThis?'is-playing':''}`} title={isPlayingThis?'Pausar prévia':'Ouvir trecho'} aria-label={isPlayingThis?`Pausar prévia de ${item.name}`:`Ouvir trecho de ${item.name}`} onClick={()=>togglePreview(item.id,clip.file)}>
+                          {isPlayingThis?<Pause size={14}/>:<Play size={14}/>}
+                        </button>
+                      )}
+                      <label className={`button small upload-btn ${hasManual?'':'primary'} ${uploading===item.id?'disabled':''}`}>
+                        {uploading===item.id?<MusicLoader size="sm"/>:<Upload size={14}/>}
+                        <span>{hasManual?'Trocar':'Importar'}</span>
+                        <input type="file" accept="audio/*,.mp3,.m4a,.wav,.ogg,.aac,.flac,.webm" aria-label={`Trecho de ${item.name}`} disabled={!!uploading||disabled} className="sr-only" onChange={e=>{const file=e.target.files?.[0];e.target.value='';void upload(item.id,file);}}/>
+                      </label>
+                      {hasManual&&(
+                        <button type="button" className="icon-button remove-btn" aria-label={`Remover trecho de ${item.name}`} title="Remover trecho" disabled={!!uploading||disabled} onClick={()=>void removeClip(item.id)}>
+                          <Trash2 size={14}/>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          }
+          {items.length>25&&<small className="leader-competitors-footer">Mostrando as primeiras 25 músicas da disputa.</small>}
+        </div>
+
+        <small className="leader-audio-footer-note">Seus arquivos de áudio ficam salvos de forma privada neste aparelho e entram na gravação em vídeo. <Info size={12}/> No modo automático, as prévias de 30s tocam durante o preview no navegador.</small>
       </>}
       {error&&<p className="alert error" role="alert">{error}</p>}
     </div>
-    {open&&<Modal title="A voz de cada #1" subtitle="Associe um trecho a cada item. Ele repete enquanto lidera e muda quando outro assume." onClose={()=>setOpen(false)} wide>
-      <div className="audio-clips-intro"><Headphones size={24}/><p>Escolha arquivos de áudio de até 60 segundos e 8 MB. Tocamos até 30 segundos em loop. Itens sem trecho ficam em silêncio; as contagens do chart não mudam.</p></div>
-      <label className="field-label">Buscar no elenco<input type="search" aria-label="Buscar item para adicionar trecho" placeholder="Música, álbum ou artista" value={query} onChange={e=>setQuery(e.target.value)}/></label>
-      {failure&&<p className="alert error" role="alert">{failure}</p>}
-      {!visible.length&&<p className="note">Nenhum item encontrado na seleção do vídeo. Adicione competidores no estúdio.</p>}
-      <div className="audio-clip-list">{visible.map(item=><div className="audio-clip-row" key={item.id}><Cover item={item}/><div className="truncate"><strong>{item.name}</strong><small>{item.artist}</small><small>{clips[item.id]?`${clips[item.id].name} · ${Math.round(clips[item.id].duration)}s`:autoClips[item.id]?`Automático: ${autoClips[item.id].name}`:'Sem trecho'}</small></div><label className={`button small ${uploading?'disabled':''}`}>{uploading===item.id?<MusicLoader size="sm"/>:<Upload size={15}/>}<span>{clips[item.id]?'Trocar':'Adicionar'}</span><input type="file" accept="audio/*,.mp3,.m4a,.wav,.ogg,.aac,.flac,.webm" aria-label={`Trecho de ${item.name}`} disabled={!!uploading} onChange={e=>{const file=e.target.files?.[0];e.target.value='';void upload(item.id,file);}}/></label>{clips[item.id]&&<button type="button" className="icon-button" aria-label={`Remover trecho de ${item.name}`} disabled={!!uploading} onClick={()=>{const next={...clips};delete next[item.id];void onSave(next).catch(()=>setFailure('Não foi possível remover o trecho do aparelho.'));}}><Trash2 size={15}/></button>}</div>)}</div>
-      <p className="note">Até 24 trechos por perfil. A lista mostra 50 resultados por busca. Formatos compatíveis dependem do navegador; MP3 e WAV costumam funcionar em Android e iPhone.</p>
-    </Modal>}
     {auto&&<AutoMatchModal items={items} autoClips={autoClips} onSave={onSaveAuto} onClose={()=>setAuto(false)}/>}
   </>;
 }

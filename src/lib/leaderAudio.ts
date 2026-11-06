@@ -4,7 +4,7 @@ import type { ChartWeek, Item, StudioSettings } from './types';
 export interface AudioClip { file: File; name: string; duration: number; origin?: 'manual' | 'auto'; matchedBy?: string }
 export type ClipBank = Record<string, AudioClip>;
 export type LeaderAudioMode = 'manual' | 'auto' | 'auto-manual';
-export const audioModeLabels: Record<LeaderAudioMode, string> = { manual: 'Manual', auto: 'Automático', 'auto-manual': 'Automático + manual' };
+export const audioModeLabels: Record<LeaderAudioMode, string> = { manual: 'Manual', auto: 'Automático', 'auto-manual': 'Auto + Manual' };
 /** Une os bancos conforme o modo. Em “automático + manual”, o trecho escolhido à mão sempre vence. */
 export function resolveClipBank(mode: LeaderAudioMode, manual: ClipBank, auto: ClipBank): ClipBank {
   if (mode === 'manual') return manual;
@@ -67,24 +67,51 @@ export class LeaderAudioSession {
   private generation=0;
   private closed=false;
   private lastRequest:{id:string|null;file?:File}|undefined;
-  constructor(private clips:()=>ClipBank, private onStatus:(state:AudioStatus)=>void=()=>{}, options:{record?:boolean;audible?:boolean;volume?:number;context?:AudioContext}={}){
+  private volume = 0.7;
+  private fallbackAudio: HTMLAudioElement | null = null;
+  private resolvePreviewUrl?: (id: string) => Promise<string | null> | string | null;
+  constructor(private clips:()=>ClipBank, private onStatus:(state:AudioStatus)=>void=()=>{}, options:{record?:boolean;audible?:boolean;volume?:number;context?:AudioContext;resolvePreviewUrl?:(id:string)=>Promise<string|null>|string|null}={}){
     this.context=options.context??new AudioContext();
+    this.resolvePreviewUrl=options.resolvePreviewUrl;
     this.master=this.context.createGain();this.setVolume(options.volume??.7);
     this.destination=options.record?this.context.createMediaStreamDestination():null;
     if(this.destination)this.master.connect(this.destination);
     if(options.audible!==false)this.master.connect(this.context.destination);
   }
-  setVolume(value:number){if(!this.closed)this.master.gain.setTargetAtTime(Math.max(0,Math.min(1,value)),this.context.currentTime,.03);}
-  async resume(){if(this.closed)return;await this.context.resume();if(this.current)this.onStatus({phase:'playing',id:this.current.id});}
-  pause(){if(this.closed)return;void this.context.suspend().catch(()=>{});this.onStatus({phase:'paused',id:this.current?.id??null});}
+  setVolume(value:number){
+    this.volume=Math.max(0,Math.min(1,value));
+    if(!this.closed)this.master.gain.setTargetAtTime(this.volume,this.context.currentTime,.03);
+    if(this.fallbackAudio)this.fallbackAudio.volume=this.volume;
+  }
+  async resume(){
+    if(this.closed)return;
+    await this.context.resume().catch(()=>{});
+    if(this.fallbackAudio){
+      await this.fallbackAudio.play().catch(()=>{});
+    }
+    if(this.current)this.onStatus({phase:'playing',id:this.current.id});
+  }
+  pause(){
+    if(this.closed)return;
+    void this.context.suspend().catch(()=>{});
+    if(this.fallbackAudio)this.fallbackAudio.pause();
+    this.onStatus({phase:'paused',id:this.current?.id??null});
+  }
   private stopVoice(){
+    if(this.fallbackAudio){
+      try{this.fallbackAudio.pause();this.fallbackAudio.removeAttribute('src');this.fallbackAudio.load();}catch{/* ignore */}
+      this.fallbackAudio=null;
+    }
     if(!this.voice)return;
     const {source,gain}=this.voice;this.voice=null;
     gain.gain.cancelScheduledValues(this.context.currentTime);gain.gain.setValueAtTime(gain.gain.value,this.context.currentTime);gain.gain.linearRampToValueAtTime(0,this.context.currentTime+.06);
     source.onended=()=>{source.disconnect();gain.disconnect();};
     try{source.stop(this.context.currentTime+.07);}catch{source.disconnect();gain.disconnect();}
   }
-  stop(){this.generation++;this.current=null;this.lastRequest=undefined;this.stopVoice();if(!this.closed)this.onStatus({phase:'idle',id:null});}
+  stop(){
+    this.generation++;this.current=null;this.lastRequest=undefined;this.stopVoice();
+    if(!this.closed)this.onStatus({phase:'idle',id:null});
+  }
   private buffer(file:File):Promise<AudioBuffer>{
     const hit=this.buffers.get(file);
     if(hit){this.buffers.delete(file);this.buffers.set(file,hit);return Promise.resolve(hit);}
@@ -115,16 +142,49 @@ export class LeaderAudioSession {
     this.lastRequest={id,file:clip?.file};
     const version=++this.generation;this.current=id&&clip?{id,file:clip.file}:null;this.stopVoice();
     if(!id){this.onStatus({phase:'idle',id:null});return;}
-    if(!clip){this.onStatus({phase:'missing',id});return;}
-    this.onStatus({phase:'loading',id});
-    try{
-      const buffer=await this.buffer(clip.file);
-      if(this.closed||version!==this.generation)return;
-      const source=this.context.createBufferSource(),gain=this.context.createGain();
-      source.buffer=buffer;source.loop=true;gain.gain.setValueAtTime(0,this.context.currentTime);gain.gain.linearRampToValueAtTime(1,this.context.currentTime+.04);
-      source.connect(gain);gain.connect(this.master);this.voice={source,gain};source.start();
-      this.onStatus({phase:this.context.state==='running'?'playing':'paused',id});
-    }catch{if(!this.closed&&version===this.generation){this.current=null;this.onStatus({phase:'error',id,message:'Não foi possível tocar este trecho. O vídeo continua em silêncio.'});}}
+
+    // 1. Áudio local prioritário (manual ou associado)
+    if(clip){
+      this.onStatus({phase:'loading',id});
+      try{
+        const buffer=await this.buffer(clip.file);
+        if(this.closed||version!==this.generation)return;
+        const source=this.context.createBufferSource(),gain=this.context.createGain();
+        source.buffer=buffer;source.loop=true;gain.gain.setValueAtTime(0,this.context.currentTime);gain.gain.linearRampToValueAtTime(1,this.context.currentTime+.04);
+        source.connect(gain);gain.connect(this.master);this.voice={source,gain};source.start();
+        this.onStatus({phase:this.context.state==='running'?'playing':'paused',id});
+        return;
+      }catch{if(!this.closed&&version===this.generation){this.current=null;this.onStatus({phase:'error',id,message:'Não foi possível tocar este trecho.'});}return;}
+    }
+
+    // 2. Modo automático inteligente: busca prévia oficial do catálogo
+    if(this.resolvePreviewUrl){
+      this.onStatus({phase:'loading',id});
+      try{
+        const url=await this.resolvePreviewUrl(id);
+        if(this.closed||version!==this.generation)return;
+        if(url&&typeof Audio!=='undefined'){
+          const audio=new Audio(url);
+          audio.loop=true;
+          audio.volume=this.volume;
+          this.fallbackAudio=audio;
+          await audio.play().catch(()=>{});
+          if(this.closed||version!==this.generation){try{audio.pause();}catch{/* ignore */}return;}
+          this.onStatus({phase:'playing',id});
+          return;
+        }
+      }catch{/* fallback to missing */}
+    }
+
+    if(!this.closed&&version===this.generation){
+      this.onStatus({phase:'missing',id});
+    }
   }
-  dispose(){if(this.closed)return;this.stop();this.closed=true;this.buffers.clear();this.pending.clear();this.master.disconnect();void this.context.close().catch(()=>{});}
+  dispose(){
+    if(this.closed)return;
+    this.stop();
+    this.closed=true;
+    if(this.fallbackAudio){try{this.fallbackAudio.pause();this.fallbackAudio.removeAttribute('src');}catch{/* ignore */}this.fallbackAudio=null;}
+    this.buffers.clear();this.pending.clear();this.master.disconnect();void this.context.close().catch(()=>{});
+  }
 }

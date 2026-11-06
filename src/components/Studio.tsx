@@ -116,11 +116,21 @@ export function Studio({
   const activeClips=useMemo(()=>resolveClipBank(audioMode,audioBank.clips,autoBank.clips),[audioMode,audioBank.clips,autoBank.clips]);
   const clipsRef=useRef(activeClips);clipsRef.current=activeClips;
   const previewAudio=useRef<LeaderAudioSession|null>(null);
+  const itemsMapRef=useRef<Map<string,Item>>(new Map());
   const [audioStatus,setAudioStatus]=useState<AudioStatus>({phase:'idle',id:null});
   const resumeSound=()=>{
     onSoundStart?.();
     try{
-      previewAudio.current??=new LeaderAudioSession(()=>clipsRef.current,setAudioStatus,{volume:settings.leaderVolume??.7});
+      previewAudio.current??=new LeaderAudioSession(()=>clipsRef.current,setAudioStatus,{
+        volume:settings.leaderVolume??.7,
+        resolvePreviewUrl:async(id:string)=>{
+          if(audioMode==='manual')return null;
+          const item=itemsMapRef.current.get(id);
+          if(!item)return null;
+          const media=await resolveCatalogMedia(item);
+          return media?.previewUrl||null;
+        },
+      });
       void previewAudio.current.resume().catch(()=>setAudioStatus({phase:'error',id:null,message:'Toque em Play novamente para liberar o áudio neste navegador.'}));
     }catch{setAudioStatus({phase:'error',id:null,message:'Áudio indisponível neste navegador. A animação continua funcionando.'});}
   };
@@ -279,12 +289,14 @@ export function Studio({
     setPosition(0);
     positionRef.current = 0;
     setPlaying(false);
+    itemsMapRef.current = new Map(selectedItems.map(i => [i.id, i]));
   }, [selectedItems]);
 
   useEffect(() => () => {abortRecord.current?.abort();previewAudio.current?.dispose();}, []);
   useEffect(()=>{if(!playing)previewAudio.current?.pause();},[playing]);
   useEffect(()=>{if(!settings.leaderAudio){previewAudio.current?.dispose();previewAudio.current=null;setAudioStatus({phase:'idle',id:null});}},[settings.leaderAudio]);
   useEffect(()=>{previewAudio.current?.setVolume(settings.leaderVolume??.7);},[settings.leaderVolume]);
+  useEffect(()=>{previewAudio.current?.dispose();previewAudio.current=null;if(playing&&settings.leaderAudio)resumeSound();},[audioMode]);
 
   // Zero-re-render 60fps animation loop
   useEffect(() => {

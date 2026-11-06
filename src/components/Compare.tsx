@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Download, FileUp, Info, Square, UserPlus, Users, X } from 'lucide-react';
+import { Check, Copy, Download, FileUp, Flame, HeartHandshake, Info, Sparkles, Square, Swords, Trophy, UserPlus, Users, X, Zap } from 'lucide-react';
 import { ApiError, fetchWeek, getProfile } from '../lib/api';
 import { makeWeeks, weekKey } from '../lib/calendar';
 import { compareGroup, compareProfiles, sameProfile, type ProfileComparison } from '../lib/compare';
@@ -18,6 +18,7 @@ export function Compare({ settings, cached, owner, year, source, dark }: { setti
   type Other = { settings: Settings; profile: Profile | null; cached: CachedWeek[]; origin: 'lastfm' | 'arquivo' };
   const [others, setOthers] = useState<Other[]>([]);
   const [activeName, setActiveName] = useState('');
+  const [copiedDuel, setCopiedDuel] = useState(false);
   const other = others.find(o => o.settings.user === activeName) ?? others[0] ?? null;
   const setOther = (next: Other | ((cur: Other | null) => Other | null)) => setOthers(list => {
     const value = typeof next === 'function' ? next(list.find(o => o.settings.user === activeName) ?? list[0] ?? null) : next;
@@ -42,6 +43,101 @@ export function Compare({ settings, cached, owner, year, source, dark }: { setti
   const label = year === 'all' ? 'Últimas 52 semanas' : `Semanas iniciadas em ${year}`;
   const group = useMemo(() => others.length >= 2 ? compareGroup([{ name: owner, cached }, ...others.map(o => ({ name: o.profile?.name ?? o.settings.user, cached: o.cached }))], { kind, start: range.start, end: range.end, source, deduplicate: settings.deduplicate }) : null, [others, owner, cached, kind, range, source, settings.deduplicate]);
   const result: ProfileComparison | null = useMemo(() => other ? compareProfiles({ name: owner, cached }, { name: other.profile?.name ?? other.settings.user, cached: other.cached }, { kind, start: range.start, end: range.end, source, deduplicate: settings.deduplicate, totalWeeks: range.weeks.length, limit: 15 }) : null, [other, owner, cached, kind, range, source, settings.deduplicate]);
+
+  // Cálculos do Duelo Gamificado / VS
+  const duel = useMemo(() => {
+    if (!result) return null;
+    const topPlaysA = result.a.ranked[0]?.plays ?? 0;
+    const topPlaysB = result.b.ranked[0]?.plays ?? 0;
+    const sharedPlaysA = result.shared.reduce((acc, i) => acc + i.playsA, 0);
+    const sharedPlaysB = result.shared.reduce((acc, i) => acc + i.playsB, 0);
+
+    const rounds = [
+      {
+        id: 'volume',
+        title: 'Volume no Fone',
+        desc: 'Quem mais ouviu músicas no período',
+        scoreA: result.a.plays,
+        scoreB: result.b.plays,
+        winner: result.a.plays > result.b.plays ? 'A' : result.b.plays > result.a.plays ? 'B' : 'draw',
+      },
+      {
+        id: 'eclectic',
+        title: 'Explorador Musical',
+        desc: 'Quem navegou por mais itens únicos',
+        scoreA: result.a.items,
+        scoreB: result.b.items,
+        winner: result.a.items > result.b.items ? 'A' : result.b.items > result.a.items ? 'B' : 'draw',
+      },
+      {
+        id: 'obsession',
+        title: 'Pico de Vício (#1)',
+        desc: 'Quem deu mais repeat na sua faixa #1 favorita',
+        scoreA: topPlaysA,
+        scoreB: topPlaysB,
+        winner: topPlaysA > topPlaysB ? 'A' : topPlaysB > topPlaysA ? 'B' : 'draw',
+      },
+      {
+        id: 'shared_power',
+        title: 'Domínio dos Hits Mútuos',
+        desc: 'Quem mais reproduziu as músicas em comum',
+        scoreA: sharedPlaysA,
+        scoreB: sharedPlaysB,
+        winner: sharedPlaysA > sharedPlaysB ? 'A' : sharedPlaysB > sharedPlaysA ? 'B' : 'draw',
+      },
+    ];
+
+    const winsA = rounds.filter(r => r.winner === 'A').length;
+    const winsB = rounds.filter(r => r.winner === 'B').length;
+    const overall = winsA > winsB ? 'A' : winsB > winsA ? 'B' : 'draw';
+
+    // Termômetro de Sintonia (Affinity Tier)
+    const ov = result.overlap ?? 0;
+    let tierTitle = 'Água e Vinho 🧊🔥';
+    let tierDesc = 'Multiversos paralelos! Cada um no seu palco, zero risco de brigar pelo mesmo repeat.';
+    let tierColor = '#06b6d4';
+    if (ov >= 70) {
+      tierTitle = 'Gêmeos de Era 👯‍♀️';
+      tierDesc = 'Vocês dividem o mesmo cérebro musical! Podem trocar de fone sem notar diferença.';
+      tierColor = '#f43f5e';
+    } else if (ov >= 45) {
+      tierTitle = 'Almas Gêmeas da Playlist 💖';
+      tierDesc = 'Sintonia máxima! O cabo AUX está liberado em qualquer rolê de olhos fechados.';
+      tierColor = '#ec4899';
+    } else if (ov >= 25) {
+      tierTitle = 'Fandoms em Sintonia ✨';
+      tierDesc = 'Energia parelha! Com certeza vocês se esbarram cantando na grade dos mesmos festivais.';
+      tierColor = '#a855f7';
+    } else if (ov >= 10) {
+      tierTitle = 'Encontro de Mundos 🎪';
+      tierDesc = 'Gostos diferentes, mas com aquele ponto de encontro sagrado que une os dois na pista.';
+      tierColor = '#3b82f6';
+    }
+
+    return { rounds, winsA, winsB, overall, tierTitle, tierDesc, tierColor, topShared: result.shared[0] ?? null, topOnlyA: result.onlyA[0] ?? null, topOnlyB: result.onlyB[0] ?? null };
+  }, [result]);
+
+  const copyDuelSummary = async () => {
+    if (!result || !duel) return;
+    const winnerText = duel.overall === 'A' ? `👑 ${result.a.name} venceu por ${duel.winsA} × ${duel.winsB}!` : duel.overall === 'B' ? `👑 ${result.b.name} venceu por ${duel.winsB} × ${duel.winsA}!` : `🤝 Empate Épico (${duel.winsA} × ${duel.winsB})!`;
+    const text = [
+      `⚔️ DUELO MUSICAL NO LASTCHART: @${result.a.name} vs @${result.b.name}`,
+      `🏆 Placar: ${winnerText}`,
+      `✨ Sintonia: ${result.overlap ? result.overlap.toFixed(1) : '0'}% · ${duel.tierTitle}`,
+      duel.topShared ? `🎵 Hino da Amizade: "${duel.topShared.name}" (${duel.topShared.artist})` : '',
+      duel.topOnlyA ? `⚡ Vício de @${result.a.name}: "${duel.topOnlyA.name}" (${number(duel.topOnlyA.plays)} plays)` : '',
+      duel.topOnlyB ? `⚡ Vício de @${result.b.name}: "${duel.topOnlyB.name}" (${number(duel.topOnlyB.plays)} plays)` : '',
+      `👉 Compare você também: charts-david.vercel.app`,
+    ].filter(Boolean).join('\n');
+
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedDuel(true);
+      setTimeout(() => setCopiedDuel(false), 3000);
+    } catch {
+      /* ignore */
+    }
+  };
 
   const loadProfile = async () => {
     const name = username.trim();
@@ -123,22 +219,143 @@ export function Compare({ settings, cached, owner, year, source, dark }: { setti
         : <button type="button" className="button small primary" disabled={!!busy} onClick={() => void syncOther()}><Download size={15} /><span>Baixar {label.toLowerCase()}</span></button>)}
     </div>}
     {group && <GroupView group={group} />}
-    {result && <>
-      <h4 className="compare-duel-title">Duelo: {result.a.name} × {result.b.name}</h4>
-      <div className="segmented compact-seg" role="group" aria-label="Tipo de comparação">{(['tracks', 'albums', 'artists'] as Kind[]).map(k => <button key={k} type="button" className={kind === k ? 'selected' : ''} aria-pressed={kind === k} onClick={() => setKind(k)}>{k === 'tracks' ? 'Músicas' : k === 'albums' ? 'Álbuns' : 'Artistas'}</button>)}</div>
-      <div className="compare-sides">{[result.a, result.b].map(side => <div key={side.name} className="compare-side"><strong>{side.name}</strong><span>{number(side.plays)} reproduções · {number(side.items)} itens</span><small className={side.coverage < .999 ? 'is-partial' : ''}>Cobertura {pct(side.coverage)} · {side.coveredWeeks}/{side.totalWeeks} semanas baixadas</small></div>)}</div>
-      <section className="insight-card compare-overlap">
-        <h3>Sobreposição de gosto</h3>
-        <p><Info size={14} /> Para cada item em comum, pegamos a menor fatia entre os dois perfis (reproduções do item ÷ total do período) e somamos. 0% = nada em comum; 100% = mesma distribuição. Não mede qualidade nem amizade.</p>
-        {result.overlap === null ? <p className="note">Sem reproduções em um dos lados neste período. Baixe as semanas do segundo perfil ou escolha outra época.</p> : <strong className="insight-big">{result.overlap.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%</strong>}
-        {(result.a.coverage < .999 || result.b.coverage < .999) && <p className="note">Coberturas diferentes: semanas não baixadas não contam como zero e podem mudar o resultado.</p>}
+    {result && duel && <>
+      {/* ——— ARENA GAMIFICADA DO DUELO (VS) ——— */}
+      <section className="duel-arena">
+        <div className="duel-arena-header">
+          <div className={`duel-fighter fighter-a ${duel.overall === 'A' ? 'is-winner' : ''}`}>
+            {duel.overall === 'A' && <span className="winner-crown"><Trophy size={16} /> Vencedor</span>}
+            <h3>{result.a.name}</h3>
+            <span className="fighter-stat">{number(result.a.plays)} plays · {number(result.a.items)} itens</span>
+          </div>
+
+          <div className="duel-vs-badge">
+            <Swords size={22} />
+            <span>VS</span>
+          </div>
+
+          <div className={`duel-fighter fighter-b ${duel.overall === 'B' ? 'is-winner' : ''}`}>
+            {duel.overall === 'B' && <span className="winner-crown"><Trophy size={16} /> Vencedor</span>}
+            <h3>{result.b.name}</h3>
+            <span className="fighter-stat">{number(result.b.plays)} plays · {number(result.b.items)} itens</span>
+          </div>
+        </div>
+
+        {/* Placar de Batalha (Rounds) */}
+        <div className="duel-scoreboard">
+          <div className="scoreboard-title">
+            <Flame size={16} />
+            <span>Placar da Batalha · {duel.winsA} × {duel.winsB}</span>
+            <small>{duel.overall === 'A' ? `Vitória de @${result.a.name}` : duel.overall === 'B' ? `Vitória de @${result.b.name}` : 'Empate Pop!'}</small>
+          </div>
+          <div className="duel-rounds">
+            {duel.rounds.map((r, idx) => (
+              <div className={`duel-round-row ${r.winner}`} key={r.id}>
+                <span className="round-idx">R{idx + 1}</span>
+                <div className="round-desc">
+                  <strong>{r.title}</strong>
+                  <small>{r.desc}</small>
+                </div>
+                <div className="round-scores">
+                  <span className={`score-tag score-a ${r.winner === 'A' ? 'won' : ''}`}>{number(r.scoreA)}</span>
+                  <span className="score-sep">×</span>
+                  <span className={`score-tag score-b ${r.winner === 'B' ? 'won' : ''}`}>{number(r.scoreB)}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Termômetro Pop de Sintonia */}
+        <div className="duel-affinity-card" style={{ borderColor: `${duel.tierColor}55` }}>
+          <div className="affinity-badge" style={{ background: `${duel.tierColor}22`, color: duel.tierColor }}>
+            <Sparkles size={14} />
+            <span>{duel.tierTitle}</span>
+          </div>
+          <div className="affinity-number">
+            <strong>{result.overlap === null ? '—' : `${result.overlap.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`}</strong>
+            <small>Índice de Sintonia Musical</small>
+          </div>
+          <p className="affinity-explanation">{duel.tierDesc}</p>
+          <div className="affinity-meter-track">
+            <div className="affinity-meter-fill" style={{ width: `${Math.min(100, Math.max(4, result.overlap ?? 0))}%`, background: duel.tierColor }} />
+          </div>
+        </div>
+
+        {/* O Hino da Amizade & Choque de Realidade */}
+        <div className="duel-highlights">
+          {duel.topShared && (
+            <div className="highlight-card shared-anthem">
+              <div className="highlight-tag"><HeartHandshake size={14} /> Hino da Amizade</div>
+              <div className="highlight-content">
+                <Cover item={{ ...duel.topShared, album: '' }} />
+                <div className="highlight-text truncate">
+                  <strong className="truncate">{duel.topShared.name}</strong>
+                  <small className="truncate">{duel.topShared.artist}</small>
+                  <span className="highlight-plays">
+                    {result.a.name}: <b>{number(duel.topShared.playsA)}</b> · {result.b.name}: <b>{number(duel.topShared.playsB)}</b>
+                  </span>
+                </div>
+              </div>
+              <small className="highlight-footer">O hit supremo que mais une os dois fones no repeat.</small>
+            </div>
+          )}
+
+          {(duel.topOnlyA || duel.topOnlyB) && (
+            <div className="highlight-card culture-shock">
+              <div className="highlight-tag"><Zap size={14} /> Choque de Realidade</div>
+              <div className="shock-grid">
+                {duel.topOnlyA && (
+                  <div className="shock-item">
+                    <Cover item={duel.topOnlyA} />
+                    <div className="shock-text truncate">
+                      <span className="shock-label">Só @{result.a.name} ouve:</span>
+                      <strong className="truncate">{duel.topOnlyA.name}</strong>
+                      <small>{duel.topOnlyA.artist} · {number(duel.topOnlyA.plays)} plays</small>
+                    </div>
+                  </div>
+                )}
+                {duel.topOnlyB && (
+                  <div className="shock-item">
+                    <Cover item={duel.topOnlyB} />
+                    <div className="shock-text truncate">
+                      <span className="shock-label">Só @{result.b.name} ouve:</span>
+                      <strong className="truncate">{duel.topOnlyB.name}</strong>
+                      <small>{duel.topOnlyB.artist} · {number(duel.topOnlyB.plays)} plays</small>
+                    </div>
+                  </div>
+                )}
+              </div>
+              <small className="highlight-footer">Os maiores vícios de cada um que o outro nunca reproduziu.</small>
+            </div>
+          )}
+        </div>
+
+        {/* Botão de copiar resumo do duelo */}
+        <div className="duel-share-actions">
+          <button type="button" className={`button small ${copiedDuel ? 'success' : ''}`} onClick={() => void copyDuelSummary()}>
+            {copiedDuel ? <Check size={15} /> : <Copy size={15} />}
+            <span>{copiedDuel ? 'Resumo copiado!' : 'Copiar resumo do Duelo'}</span>
+          </button>
+        </div>
       </section>
+
+      <div className="segmented compact-seg" role="group" aria-label="Tipo de comparação">{(['tracks', 'albums', 'artists'] as Kind[]).map(k => <button key={k} type="button" className={kind === k ? 'selected' : ''} aria-pressed={kind === k} onClick={() => setKind(k)}>{k === 'tracks' ? 'Músicas' : k === 'albums' ? 'Álbuns' : 'Artistas'}</button>)}</div>
+
+      <div className="compare-sides">{[result.a, result.b].map(side => <div key={side.name} className="compare-side"><strong>{side.name}</strong><span>{number(side.plays)} reproduções · {number(side.items)} itens</span><small className={side.coverage < .999 ? 'is-partial' : ''}>Cobertura {pct(side.coverage)} · {side.coveredWeeks}/{side.totalWeeks} semanas baixadas</small></div>)}</div>
+
       <div className="compare-lists">
         <section><h4>Em comum · {result.shared.length}</h4>{result.shared.length ? <ol><li className="compare-head" aria-hidden="true"><span /><span>Posição e plays no período</span><b className="truncate">{result.a.name}</b><b className="truncate">{result.b.name}</b></li>{result.shared.map(item => <li key={item.id}><Cover item={{ ...item, album: '' }} /><span className="truncate"><strong>{item.name}</strong><small>{item.artist}</small></span><span className="compare-ranks"><b>#{item.rankA}</b><small>{number(item.playsA)}</small></span><span className="compare-ranks"><b>#{item.rankB}</b><small>{number(item.playsB)}</small></span></li>)}</ol> : <p className="note">Nenhum item em comum neste período.</p>}</section>
         <section><h4>Só {result.a.name}</h4><ol>{result.onlyA.slice(0, 8).map(item => <li key={item.id}><Cover item={item} /><span className="truncate"><strong>{item.name}</strong><small>{item.artist} · {number(item.plays)}</small></span></li>)}</ol></section>
         <section><h4>Só {result.b.name}</h4><ol>{result.onlyB.slice(0, 8).map(item => <li key={item.id}><Cover item={item} /><span className="truncate"><strong>{item.name}</strong><small>{item.artist} · {number(item.plays)}</small></span></li>)}</ol></section>
       </div>
-      <div className="spotlight-export"><span>Compartilhar manualmente</span><button type="button" className="button small" disabled={exporting} onClick={() => void share(false)}>{exporting ? <MusicLoader size="sm" /> : <Download size={15} />}<span>Card PNG</span></button><button type="button" className="button small" disabled={exporting} onClick={() => void share(true)}>PDF</button><small>O card mostra nomes públicos, período e números reais; nada é publicado automaticamente.</small></div>
+
+      <div className="spotlight-export">
+        <span>Compartilhar duelo</span>
+        <button type="button" className="button small" disabled={exporting} onClick={() => void share(false)}>{exporting ? <MusicLoader size="sm" /> : <Download size={15} />}<span>Card PNG</span></button>
+        <button type="button" className="button small" disabled={exporting} onClick={() => void share(true)}>PDF</button>
+        <small>O card mostra nomes públicos, período e números reais; nada é publicado automaticamente.</small>
+      </div>
     </>}
   </div>;
 }

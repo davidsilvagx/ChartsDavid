@@ -43,6 +43,7 @@ import {
   TrendingUp,
   Trophy,
   Upload,
+  UserCheck,
   Users,
   Volume2,
   WifiOff,
@@ -63,6 +64,9 @@ import {
   type SourceFilter,
   type SyncProgress,
   type SyncScope,
+  DEMO_USER,
+  CUSTOM_USER_KEY,
+  isGuestProfile,
   studioDefaults,
 } from './lib/types';
 import { formatDateBR, parseDateBR, validateCalendar } from './lib/calendar';
@@ -158,6 +162,8 @@ function App() {
     weeks,
   } = data;
 
+  const isGuest = isGuestProfile(settings.user);
+
   const [year, setYear] = useState('all');
   const [historyOpen, setHistoryOpen] = useState(false);
   const [spotlightTab,setSpotlightTab]=useState<SpotlightTab|null>(null);
@@ -186,6 +192,9 @@ function App() {
   const [platformsModal, setPlatformsModal] = useState(false);
   const [help, setHelp] = useState(false);
   const [avatarModal, setAvatarModal] = useState(false);
+  const [connectModal, setConnectModal] = useState(false);
+  const [guideModal, setGuideModal] = useState(false);
+  const [guestDismissed, setGuestDismissed] = useState(false);
   const [installHelp, setInstallHelp] = useState(false);
   const [installOffer, setInstallOffer] = useState(false);
   const [installPrompt, setInstallPrompt] = useState<InstallPrompt | null>(null);
@@ -657,14 +666,14 @@ function App() {
             <button type="button" className={`icon-button settings-shortcut ${page === 'settings' ? 'active' : ''}`} aria-label="Abrir Ajustes" aria-current={page === 'settings' ? 'page' : undefined} onClick={() => navigate('settings')}><NavSettings size={18} active={page === 'settings'} /></button>
             <button
               type="button"
-              className="profile-button"
-              onClick={() => setAvatarModal(true)}
-              aria-label={`Trocar avatar do perfil ${profile?.name ?? settings.user ?? 'Perfil'}`}
+              className={`profile-button ${isGuest ? 'is-guest' : ''}`}
+              onClick={() => isGuest ? setConnectModal(true) : setAvatarModal(true)}
+              aria-label={isGuest ? 'Perfil de demonstração (Convidado) · Toque para conectar seu Last.fm' : `Trocar avatar do perfil ${profile?.name ?? settings.user ?? 'Perfil'}`}
             >
               <ProfileAvatar profile={profile} avatar={settings.avatar} className="avatar" />
               <span className="profile-meta">
-                <strong>{profile?.name ?? settings.user ?? 'Perfil'}</strong>
-                <small>{cached.length} sem. salvas</small>
+                <strong>{isGuest ? 'Convidado (demo)' : (profile?.name ?? settings.user ?? 'Perfil')}</strong>
+                <small>{isGuest ? 'Toque p/ conectar' : `${cached.length} sem. salvas`}</small>
               </span>
             </button>
           </div>
@@ -672,6 +681,34 @@ function App() {
         <QuickAccess onOpen={quickOpen}/>
 
         <main id="main">
+          {isGuest && !guestDismissed && (
+            <aside className="guest-reminder-banner" role="region" aria-label="Aviso de perfil convidado">
+              <div className="guest-banner-icon">
+                <Sparkles size={20} />
+              </div>
+              <div className="guest-banner-body">
+                <div className="guest-banner-badge">
+                  <span>Modo Convidado · Perfil de Demonstração</span>
+                </div>
+                <p>
+                  Lembre-se de conectar seu próprio usuário do Last.fm para ter a experiência completa com seus próprios charts estilo Billboard, histórico e conquistas musicais!
+                </p>
+              </div>
+              <div className="guest-banner-actions">
+                <button type="button" className="button small primary" onClick={() => setConnectModal(true)}>
+                  <UserCheck size={14} />
+                  <span>Conectar meu Last.fm</span>
+                </button>
+                <button type="button" className="button small ghost" onClick={() => setGuideModal(true)}>
+                  <CircleHelp size={14} />
+                  <span>Como funciona?</span>
+                </button>
+                <button type="button" className="icon-button guest-close-btn" aria-label="Fechar lembrete por enquanto" onClick={() => setGuestDismissed(true)}>
+                  <X size={15} />
+                </button>
+              </div>
+            </aside>
+          )}
 
               {page==='overview'&&<section className="spotlight-entry"><div className="spotlight-entry-icon"><GramophoneIcon size={34}/></div><div><span className="eyebrow">SPOTLIGHT</span><h2>Seu gosto merece o palco.</h2><p>Premiação Grammy pessoal com júri ou voto, seu perfil musical e signo, comparação e recordes. Tudo em Extras.</p></div><button type="button" className="button" onClick={()=>navigate('extras')}><Sparkles size={16}/><span>Abrir Extras & prêmios</span></button></section>}
           {!online && (
@@ -1597,6 +1634,46 @@ function App() {
         />
       )}
 
+      {connectModal && (
+        <ConnectAccountModal
+          current={settings.user}
+          isGuest={isGuest}
+          onClose={() => setConnectModal(false)}
+          onConnect={async (username: string) => {
+            setConnectModal(false);
+            try { localStorage.setItem(CUSTOM_USER_KEY, '1'); } catch { /* ignore */ }
+            setYear('all');
+            setWeekId('');
+            setSettings(s => ({ ...s, user: username }));
+            setSyncAfterSwitch(true);
+            data.setNotice(`Bem-vindo, @${username}! Seus charts estão sendo sincronizados.`);
+          }}
+          onResetDemo={() => {
+            setConnectModal(false);
+            try { localStorage.removeItem(CUSTOM_USER_KEY); } catch { /* ignore */ }
+            setYear('all');
+            setWeekId('');
+            setSettings(s => ({ ...s, user: DEMO_USER }));
+            setSyncAfterSwitch(true);
+            data.setNotice(`Perfil restaurado para o modo de demonstração (@${DEMO_USER}).`);
+          }}
+          onOpenGuide={() => {
+            setConnectModal(false);
+            setGuideModal(true);
+          }}
+        />
+      )}
+
+      {guideModal && (
+        <LastfmGuideModal
+          onClose={() => setGuideModal(false)}
+          onOpenConnect={() => {
+            setGuideModal(false);
+            setConnectModal(true);
+          }}
+        />
+      )}
+
       {help && (
         <Modal title="Metodologia & Arquitetura" subtitle="Como seus scrobbles viram charts auditáveis" onClose={() => setHelp(false)}>
           <div className="prose">
@@ -2176,6 +2253,9 @@ function SettingsPage({
       if (draft.apiKey && !/^[a-f\d]{32}$/i.test(draft.apiKey.trim())) {
         throw new Error('A chave Last.fm deve ter 32 caracteres hexadecimais.');
       }
+      if (draft.user.trim().toLowerCase() !== DEMO_USER.toLowerCase()) {
+        try { localStorage.setItem(CUSTOM_USER_KEY, '1'); } catch { /* ignore */ }
+      }
       setSettings({
         ...settings,
         user: draft.user.trim(),
@@ -2240,17 +2320,44 @@ function SettingsPage({
               </button>
             </div>
 
+            {isGuestProfile(settings.user) && (
+              <div className="alert info settings-guest-alert">
+                <Sparkles size={17} />
+                <div>
+                  <strong>Você está no Perfil de Demonstração (Convidado)</strong>
+                  <p>Altere o usuário abaixo para o seu próprio perfil do Last.fm e toque em Salvar para ver seus charts reais.</p>
+                </div>
+              </div>
+            )}
+
             <label>
               Usuário Last.fm
               <input
                 value={draft.user}
                 onChange={e => change('user', e.target.value)}
-                placeholder="Ex: Iknowjauregui"
+                placeholder="Ex: seunome_musical"
                 autoComplete="off"
                 required
               />
               <small>Apenas o nome de usuário público. Nenhuma senha ou login OAuth é solicitado.</small>
             </label>
+
+            {!isGuestProfile(settings.user) && (
+              <div className="settings-guest-revert">
+                <span>Deseja testar com os dados de demonstração?</span>
+                <button
+                  type="button"
+                  className="text-button"
+                  onClick={() => {
+                    try { localStorage.removeItem(CUSTOM_USER_KEY); } catch { /* ignore */ }
+                    setSettings({ ...settings, user: DEMO_USER });
+                    onNotice(`Perfil restaurado para o modo convidado (@${DEMO_USER}).`);
+                  }}
+                >
+                  Voltar ao perfil de exemplo (@{DEMO_USER})
+                </button>
+              </div>
+            )}
             <div className="welcome-cta"><span>Outra pessoa vai usar? Abra o passo a passo ou envie o convite.</span><button type="button" className="button small" onClick={onWelcome}>Rever tutorial</button><button type="button" className="button small" onClick={() => void shareInvite(onNotice, onError)}>Convidar</button></div>
 
             <div className="form-two">
@@ -2606,6 +2713,152 @@ function SettingsPage({
         </div>
       </div>
     </div>
+  );
+}
+
+function ConnectAccountModal({
+  current,
+  isGuest,
+  onClose,
+  onConnect,
+  onResetDemo,
+  onOpenGuide,
+}: {
+  current: string;
+  isGuest: boolean;
+  onClose: () => void;
+  onConnect: (user: string) => Promise<void>;
+  onResetDemo: () => void;
+  onOpenGuide: () => void;
+}) {
+  const [userDraft, setUserDraft] = useState('');
+  const [checking, setChecking] = useState(false);
+  const [error, setError] = useState('');
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const clean = userDraft.trim();
+    if (!clean) {
+      setError('Informe seu nome de usuário do Last.fm.');
+      return;
+    }
+    if (!/^[\w.-]{2,100}$/.test(clean)) {
+      setError('Nome de usuário inválido. Digite apenas o seu usuário, sem links.');
+      return;
+    }
+    setChecking(true);
+    setError('');
+    try {
+      await onConnect(clean);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Não foi possível conectar a conta.');
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  return (
+    <Modal
+      title="Conecte seu Last.fm"
+      subtitle="Sem senhas! O app lê apenas seus scrobbles públicos para montar seus charts e premiações."
+      onClose={onClose}
+    >
+      <form className="connect-modal-form" onSubmit={submit}>
+        <div className="connect-intro-card">
+          <div className="connect-intro-icon">
+            <Sparkles size={22} />
+          </div>
+          <div>
+            <strong>Tenha seus próprios charts semanais</strong>
+            <p>
+              Ao conectar sua conta, o LastChart gera paradas musicais estilo Billboard com o que você ouve no Spotify, Apple Music, YouTube Music e Deezer.
+            </p>
+          </div>
+        </div>
+
+        <label className="field-label">
+          <span>Seu usuário no Last.fm</span>
+          <input
+            type="text"
+            autoFocus
+            required
+            placeholder="ex: seunome_musical"
+            value={userDraft}
+            onChange={e => setUserDraft(e.target.value)}
+            disabled={checking}
+          />
+        </label>
+
+        {error && <p className="alert error" role="alert">{error}</p>}
+
+        <div className="connect-modal-actions">
+          <button type="submit" className="button primary" disabled={checking || !userDraft.trim()}>
+            {checking ? <MusicLoader size="sm" tone="ink" /> : <UserCheck size={16} />}
+            <span>Carregar meus charts</span>
+          </button>
+          <button type="button" className="button ghost" onClick={onOpenGuide}>
+            <CircleHelp size={15} />
+            <span>Como criar conta no Last.fm?</span>
+          </button>
+        </div>
+
+        {!isGuest && (
+          <div className="connect-demo-reset">
+            <span>Quer navegar como convidado?</span>
+            <button type="button" className="text-button" onClick={onResetDemo}>
+              Voltar ao modo de demonstração (@{DEMO_USER})
+            </button>
+          </div>
+        )}
+      </form>
+    </Modal>
+  );
+}
+
+function LastfmGuideModal({ onClose, onOpenConnect }: { onClose: () => void; onOpenConnect: () => void }) {
+  return (
+    <Modal
+      title="Como funciona o Last.fm?"
+      subtitle="O passaporte do seu gosto musical na era do streaming."
+      onClose={onClose}
+    >
+      <div className="lastfm-guide">
+        <div className="guide-step">
+          <div className="guide-step-num">1</div>
+          <div>
+            <strong>Crie uma conta gratuita</strong>
+            <p>Acesse <a href="https://www.last.fm/join" target="_blank" rel="noreferrer">last.fm/join</a> e crie seu cadastro em 1 minuto. Escolha um nome de usuário que goste.</p>
+          </div>
+        </div>
+
+        <div className="guide-step">
+          <div className="guide-step-num">2</div>
+          <div>
+            <strong>Conecte seu app de música</strong>
+            <p>Vá em <i>Configurações › Aplicativos</i> no Last.fm e conecte seu Spotify, Apple Music, Deezer ou YouTube Music. Tudo o que você ouvir será registrado automaticamente (chamado de <i>scrobble</i>).</p>
+          </div>
+        </div>
+
+        <div className="guide-step">
+          <div className="guide-step-num">3</div>
+          <div>
+            <strong>Cole seu usuário aqui</strong>
+            <p>Digite seu nome de usuário no LastChart Studio Pro. Nós transformamos o seu histórico em paradas musicais da Billboard, vídeos de linhas e barras, Grammys pessoais e mais de 200 conquistas!</p>
+          </div>
+        </div>
+
+        <div className="guide-cta">
+          <button type="button" className="button primary" onClick={onOpenConnect}>
+            <UserCheck size={16} />
+            <span>Já tenho conta · Conectar agora</span>
+          </button>
+          <a href="https://www.last.fm/join" target="_blank" rel="noreferrer" className="button ghost">
+            <span>Criar conta no Last.fm</span>
+            <ArrowUpRight size={14} />
+          </a>
+        </div>
+      </div>
+    </Modal>
   );
 }
 
