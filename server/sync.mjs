@@ -113,7 +113,7 @@ export async function handleSync(request, store) {
       const bytes = new Uint8Array(await request.arrayBuffer());
       if (!bytes.length || bytes.length > MAX_CHUNK) return json({ code: 'too-large', message: 'Parte de áudio fora do limite.' }, 413);
       if (await store.hasBlob(id, blob)) return json({ ok: true, existing: true });
-      if ((await store.usage(id)) + bytes.length > ACCOUNT_QUOTA) return json({ code: 'quota', message: 'Cota de áudio sincronizado (64 MB) atingida. Remova trechos ou sincronize só o projeto.' }, 413);
+      if ((await store.usage(id)) + bytes.length > ACCOUNT_QUOTA) return json({ code: 'quota', message: 'Cota de histórico e áudio (64 MB) atingida. Exporte um backup local antes de liberar espaço na nuvem.' }, 413);
       await store.putBlob(id, blob, Buffer.from(bytes).toString('base64'), bytes.length);
       return json({ ok: true });
     }

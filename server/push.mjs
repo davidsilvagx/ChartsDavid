@@ -4,6 +4,7 @@
  * novo #1 da semana e recorde semanal. Sem dados de outras pessoas, sem rastreamento.
  */
 import { createHash } from 'node:crypto';
+import { Temporal } from '@js-temporal/polyfill';
 
 const json = (body, status = 200) => Response.json(body, { status, headers: { 'Cache-Control': 'no-store' } });
 const PUSH_HOSTS = /^(fcm\.googleapis\.com|updates\.push\.services\.mozilla\.com|[\w.-]+\.notify\.windows\.com|web\.push\.apple\.com|[\w.-]+\.push\.apple\.com|push\.opera\.com|[\w.-]+\.opera\.com)$/;
@@ -47,6 +48,12 @@ export function weekStart(now, timeZone) {
   const offset = Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day), Number(parts.hour), Number(parts.minute)) - Math.floor(now / 60000) * 60000;
   return { id: new Date(local).toISOString().slice(0, 10), start: Math.floor((local - offset) / 1000) };
 }
+export function lastClosedWeek(now, timeZone) {
+  const today = Temporal.Instant.fromEpochMilliseconds(now).toZonedDateTimeISO(timeZone).toPlainDate();
+  const end = today.subtract({ days: (today.dayOfWeek + 2) % 7 });
+  const start = end.subtract({ days: 7 });
+  return { id: start.toString(), start: Number(start.toZonedDateTime(timeZone).epochMilliseconds) / 1000, end: Number(end.toZonedDateTime(timeZone).epochMilliseconds) / 1000 };
+}
 export function inQuiet(prefs, now, timeZone) {
   if (!hhmm.test(prefs?.quietStart ?? '') || !hhmm.test(prefs?.quietEnd ?? '')) return false;
   const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone, hourCycle: 'h23', hour: '2-digit', minute: '2-digit' }).formatToParts(new Date(now)).map(x => [x.type, x.value]));
@@ -55,13 +62,14 @@ export function inQuiet(prefs, now, timeZone) {
   return a === b ? false : a < b ? m >= a && m < b : m >= a || m < b;
 }
 
-/** Decide os avisos a partir do líder e do volume da semana atual; puro, para testes. */
+/** Apenas semanas encerradas geram avisos consolidados. */
 export function planPush(state, week, prefs) {
   const out = [], next = { ...state };
+  if (week.partial) return { notifications: [], state: next };
   if (week.leader) {
     const key = `${week.id}:${week.leader.key}`;
     if (prefs?.types?.['number-one'] !== false && state.leaderKey !== key && state.leaderWeek === week.id && state.leaderKey) out.push({ tag: `n1:${key}`, title: `Novo #1 da semana: ${week.leader.name}`, body: `${week.leader.artist} assumiu o topo com ${week.leader.plays} reproduções.` });
-    if (prefs?.types?.['number-one'] !== false && state.leaderWeek !== week.id && state.leaderWeek) out.push({ tag: `n1:${key}`, title: `Começou a semana com ${week.leader.name} no #1`, body: `${week.leader.artist} lidera com ${week.leader.plays} reproduções até agora.` });
+    if (prefs?.types?.['number-one'] !== false && state.leaderWeek !== week.id && state.leaderWeek) out.push({ tag: `n1:${key}`, title: `Semana fechada com ${week.leader.name} no #1`, body: `${week.leader.artist} somou ${week.leader.plays} reproduções na semana encerrada.` });
     next.leaderKey = key; next.leaderWeek = week.id;
   }
   if (prefs?.types?.record !== false && state.bestWeek && week.plays > state.bestWeek && state.recordWeek !== week.id) { out.push({ tag: `rec:${week.id}`, title: 'Recorde semanal de reproduções', body: `${week.plays} reproduções nesta semana, acima do seu recorde anterior (${state.bestWeek}).` }); next.recordWeek = week.id; }
@@ -71,15 +79,17 @@ export function planPush(state, week, prefs) {
 }
 
 async function fetchWeek(user, timeZone, apiKey, now) {
-  const { id, start } = weekStart(now, timeZone);
+  const { id, start, end } = lastClosedWeek(now, timeZone);
   const counts = new Map(); let plays = 0;
   for (let page = 1; page <= 15; page++) {
-    const params = new URLSearchParams({ method: 'user.getrecenttracks', user, from: String(start), to: String(Math.floor(now / 1000)), limit: '200', page: String(page), api_key: apiKey, format: 'json' });
+    const params = new URLSearchParams({ method: 'user.getrecenttracks', user, from: String(start), to: String(end - 1), limit: '200', page: String(page), api_key: apiKey, format: 'json' });
     const response = await fetch(`https://ws.audioscrobbler.com/2.0/?${params}`, { signal: AbortSignal.timeout(15000), headers: { 'User-Agent': 'LastChartStudioPro/1.0 (github.com/davidsilvagx/ChartsDavid)' } });
     const body = await response.json();
+    if (!response.ok || body.error || Number(body?.recenttracks?.['@attr']?.totalPages ?? 1) > 15) throw new Error('Histórico incompleto; avisos adiados.');
     const tracks = [body?.recenttracks?.track ?? []].flat();
     for (const t of tracks) {
       if (t?.['@attr']?.nowplaying === 'true' || !t?.date?.uts) continue;
+      if (Number(t.date.uts) < start || Number(t.date.uts) >= end) continue;
       const artist = t.artist?.['#text'] ?? '', name = t.name ?? '', key = `${artist.toLowerCase()}::${name.toLowerCase()}`;
       const hit = counts.get(key) ?? { key, name, artist, plays: 0 }; hit.plays++; counts.set(key, hit); plays++;
     }
