@@ -10,8 +10,8 @@ import type { ClipBank } from './leaderAudio';
  * preferências de notificação/comparação, revisões manuais de metadados e o mapa de trechos de áudio.
  * Histórico incluído no arquivo; na nuvem vira arquivo comprimido cifrado em partes.
  */
-const LOCAL_KEYS = ['lastchart-studio:settings:v1', 'lastchart-studio:studio', 'lastchart-studio:favorites', 'lastchart-studio:source-filter:v1', 'lastchart-studio:view-mode', 'lastchart-studio:quick-access'];
-const LOCAL_PREFIXES = ['spotlight-name:v1:', 'saved-eras:v1:', 'lastchart-awards:v1:', 'lastchart-notify:v1:', 'lastchart-compare:v1:'];
+const LOCAL_KEYS = ['lastchart-studio:settings:v1', 'lastchart-studio:studio', 'lastchart-studio:favorites', 'lastchart-studio:source-filter:v1', 'lastchart-studio:view-mode', 'lastchart-studio:quick-access', 'lastchart-studio:custom-user:v1'];
+const LOCAL_PREFIXES = ['spotlight-name:v1:', 'saved-eras:v1:', 'lastchart-awards:v1:', 'lastchart-notify:v1:', 'lastchart-compare:v1:', 'lastchart-achievements:v2:'];
 const META_PREFIXES = ['meta-review:v1:', 'meta:v1:', 'artist-photo:v1:'];
 const SECRET_FIELDS = ['apiKey'];
 
@@ -31,7 +31,7 @@ export const deviceLabel = () => {
   return `${browser ? `${browser} · ` : ''}${os}`;
 };
 
-const allowedLocal = (key: string) => LOCAL_KEYS.includes(key) || LOCAL_PREFIXES.some(prefix => key.startsWith(prefix));
+export const allowedLocal = (key: string) => LOCAL_KEYS.includes(key) || LOCAL_PREFIXES.some(prefix => key.startsWith(prefix));
 function stripSecrets(key: string, value: string) {
   if (key !== 'lastchart-studio:settings:v1') return value;
   try { const parsed = JSON.parse(value); for (const field of SECRET_FIELDS) delete parsed[field]; return JSON.stringify(parsed); } catch { return value; }
@@ -292,6 +292,7 @@ export async function pullRemoteProject(key: string, signal?: AbortSignal, itera
 
 /** Verifica em segundo plano se outro aparelho salvou uma revisão mais recente e atualiza silenciosamente */
 export async function checkAndPullNewer(storage: Storage = localStorage, signal?: AbortSignal, iterations = 150_000) {
+  try { if (storage.getItem('lastchart-account:workspace-owner') && storage.getItem('lastchart-account:workspace-owner') !== 'guest') return null; } catch { return null; }
   const state = readSyncState();
   if (!state?.key) return null;
   try {

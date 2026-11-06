@@ -48,10 +48,10 @@ describe('Closed weeks and duration', () => {
   });
 });
 
-describe('280 collectible missions', () => {
+describe('430 collectible missions', () => {
   it('has unique IDs, clear nonzero criteria and zero progress for an empty archive', () => {
     const missions = buildMissions([], settings, 'all', new Map());
-    expect(missions).toHaveLength(280); expect(new Set(missions.map(m => m.id)).size).toBe(280);
+    expect(missions).toHaveLength(430); expect(new Set(missions.map(m => m.id)).size).toBe(430);
     expect(missions.every(m => m.target > 0 && m.criterion && m.value === 0)).toBe(true);
   });
   it('tracks fandom plays with source filtering, without counting the open week', () => {
