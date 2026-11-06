@@ -32,7 +32,7 @@ export function AccountPanel() {
     try {
       if (account.recovery) {
         if (!validPassword(password) || password !== confirm) {
-          setError("Use 12 a 72 bytes, maiúscula, minúscula, número e símbolo; repita a mesma senha.");
+          setError("Use pelo menos 12 caracteres, com maiúscula, minúscula, número e símbolo; repita a mesma senha.");
           return;
         }
         const { error } = await supabase.auth.updateUser({ password });
@@ -52,7 +52,7 @@ export function AccountPanel() {
         );
       } else if (mode === "signup") {
         if (!validPassword(password) || password !== confirm) {
-          setError("Use 12 a 72 bytes, maiúscula, minúscula, número e símbolo; repita a mesma senha.");
+          setError("Use pelo menos 12 caracteres, com maiúscula, minúscula, número e símbolo; repita a mesma senha.");
           return;
         }
         account.prepareLogin(carry,email);
