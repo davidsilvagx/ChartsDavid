@@ -5,6 +5,7 @@ import { verifySignupEmail } from '../lib/signupVerification';
 import { passwordRules, validPassword } from '../lib/passwordPolicy';
 import { useAccount } from './AccountProvider';
 import { DEMO_USER } from '../lib/types';
+import { AppVersion } from './AppVersion';
 import { AccountLoading } from './AccountLoading';
 type Step='login'|'email'|'password'|'verify'|'confirmed'|'reset'|'recovery';
 export function AuthForm({onStep}:{onStep:(step:string)=>void}){
@@ -68,6 +69,7 @@ export function AuthForm({onStep}:{onStep:(step:string)=>void}){
    </div>
   </div>
   <p className="auth-safe-note"><ShieldCheck size={14}/> Seu e-mail precisa ser confirmado para entrar.</p>
+  <AppVersion/>
   {busy&&<div className="auth-busy"><AccountLoading message="Só mais um compasso…"/></div>}
  </section>;
 }
