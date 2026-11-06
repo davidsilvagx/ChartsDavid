@@ -9,6 +9,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { AccountLoading } from "./AccountLoading";
 import type { Session } from "@supabase/supabase-js";
 import { supabase } from "../lib/supabase";
 import { copyGuestDatabaseToAccount } from "../lib/storage";
@@ -51,6 +52,7 @@ export const useAccount = () => {
   return value;
 };
 export function AccountProvider({ children }: { children: ReactNode }) {
+  const [entering,setEntering]=useState(()=>{try{return sessionStorage.getItem("lastchart-account:entering")==="1";}catch{return false;}});
   const [session, setSession] = useState<Session | null>(null),
     [ready, setReady] = useState(false),
     [booting,setBooting] = useState(true),
@@ -87,6 +89,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
         } catch { next = null; }
       }
       if (!alive.current || authAttempt!==authGeneration.current) return;
+      if(next && sessionStorage.getItem("lastchart-account:entering")==="1")setEntering(true);
       const owner = next?.user.id ?? "guest";
       if (workspaceOwner() !== owner) {
         switching.current = true;
@@ -101,6 +104,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
               `lastchart-account:import-guest:${owner}`,
               "1",
             );
+          navigator.serviceWorker?.controller?.postMessage({type:"ACCOUNT_WORKSPACE_SWITCH"});
           location.reload();
         } catch {
           switching.current = false;
@@ -274,7 +278,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     [],
   );
   useEffect(() => {
-    if (!ready || !session) return;
+    if (!ready || !session || recovery) return;
     const preferenceSignature = () =>
       JSON.stringify(
         Object.entries(localStorage).filter(([key]) =>
@@ -327,7 +331,8 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       window.removeEventListener("online", online);
       document.removeEventListener("visibilitychange", visible);
     };
-  }, [ready, session?.user.id, sync]);
+  }, [ready, session?.user.id, sync, recovery]);
+  useEffect(()=>{if(!entering||!ready||!session||booting)return;const timer=setTimeout(()=>{sessionStorage.removeItem("lastchart-account:entering");setEntering(false);},950);return()=>clearTimeout(timer);},[entering,ready,session?.user.id,booting]);
   const signOut = async () => {
     if (running.current)
       throw new Error("Aguarde a sincronização terminar antes de sair.");
@@ -355,13 +360,11 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       }}
     >
       {ready && (!session || recovery) ? (
-        <Suspense fallback={<main className="account-loading" role="status">Preparando sua entrada…</main>}><AccountGate/></Suspense>
+        <Suspense fallback={<AccountLoading/>}><AccountGate/></Suspense>
       ) : ready && !booting ? (
-        children
+        <>{children}{entering&&<AccountLoading overlay message="Seu palco está pronto ✦"/>}</>
       ) : (
-        <main className="account-loading" role="status">
-          {status || "Abrindo seu backstage…"}
-        </main>
+        <AccountLoading message={status || "Afinando seu backstage…"}/>
       )}
     </AccountContext.Provider>
   );
