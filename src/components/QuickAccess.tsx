@@ -1,0 +1,10 @@
+import { useState } from 'react';
+import { Heart, Radio, Sparkles, Trophy, WandSparkles } from 'lucide-react';
+import { Modal } from './UI';
+export type QuickTarget = 'live' | 'profile' | 'achievements' | 'favorites';
+const entries = [{ id: 'live', label: 'Live Charts', Icon: Radio }, { id: 'profile', label: 'Meu perfil', Icon: Sparkles }, { id: 'achievements', label: 'Conquistas', Icon: Trophy }, { id: 'favorites', label: 'Favoritos', Icon: Heart }] as const;
+export function QuickAccess({ onOpen }: { onOpen: (target: QuickTarget) => void }) {
+  const [pins, setPins] = useState<QuickTarget[]>(() => { try { const saved = JSON.parse(localStorage.getItem('lastchart-studio:quick-access') ?? 'null'); return Array.isArray(saved) ? [...new Set(saved.filter((s: QuickTarget) => entries.some(e => e.id === s)))] as QuickTarget[] : ['live', 'profile', 'achievements']; } catch { return ['live', 'profile', 'achievements']; } }), [editing, setEditing] = useState(false);
+  const update = (next: QuickTarget[]) => { setPins(next); try { localStorage.setItem('lastchart-studio:quick-access', JSON.stringify(next)); } catch { /* optional */ } };
+  return <><div className="quick-access" aria-label="Seus atalhos fixados">{entries.filter(e => pins.includes(e.id)).map(({ id, label, Icon }) => <button type="button" key={id} onClick={() => onOpen(id)}><Icon size={15}/><span>{label}</span></button>)}<button type="button" aria-label="Personalizar atalhos" onClick={() => setEditing(true)}><WandSparkles size={16}/><span>Editar</span></button></div>{editing && <Modal title="Seu backstage, suas regras" subtitle="Escolha os atalhos que ficam sempre à mão." onClose={() => setEditing(false)}><div className="shortcut-options">{entries.map(({ id, label, Icon }) => <label className="switch-row" key={id}><span><Icon size={18}/> {label}</span><input type="checkbox" role="switch" checked={pins.includes(id)} onChange={e => update(e.target.checked ? [...pins, id] : pins.filter(p => p !== id))}/></label>)}</div><button type="button" className="button primary" onClick={() => setEditing(false)}>Prontinho</button></Modal>}</>;
+}

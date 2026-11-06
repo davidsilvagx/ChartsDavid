@@ -2,7 +2,10 @@ import { createContext, useContext, useEffect, useId, useRef, useState, type Rea
 import { ArrowDown, ArrowUp, Disc3, ExternalLink, Minus, Pause, Play, Square, Volume2, X } from 'lucide-react';
 import type { ChartEntry, Item, SyncProgress } from '../lib/types';
 import { peekCatalogMedia, resolveCatalogMedia } from '../lib/catalog';
+import { artistPhoto, peekArtistPhoto } from '../lib/artistPhoto';
 import { pushChrome } from '../lib/chrome';
+import { DurationContext } from './Duration';
+import { formatWeeks } from '../lib/duration';
 
 export function MusicLoader({
   size = 'sm',
@@ -136,26 +139,31 @@ function supportsTopLayerExit(): boolean {
 export type ArtworkTarget = Pick<Item, 'id' | 'image' | 'name' | 'artist' | 'album'>;
 
 export function useArtworkUrl(item?: ArtworkTarget | null): string {
-  const [fallbackUrl, setFallbackUrl] = useState<string>(() => (item ? peekCatalogMedia(item)?.artworkUrl ?? '' : ''));
+  const artist = item?.id.startsWith('["artists"');
+  const [resolved, setResolved] = useState({ id: '', url: '' });
 
   useEffect(() => {
     if (!item) {
-      setFallbackUrl('');
       return;
     }
+    if (artist) {
+      let active = true;
+      setResolved({ id: item.id, url: peekArtistPhoto(item.artist) });
+      void artistPhoto(item.artist).then(url => { if (active) setResolved({ id: item.id, url }); });
+      return () => { active = false; };
+    }
     if (item.image) {
-      setFallbackUrl('');
       return;
     }
     const cached = peekCatalogMedia(item);
     if (cached !== undefined) {
-      setFallbackUrl(cached?.artworkUrl ?? '');
+      setResolved({ id: item.id, url: cached?.artworkUrl ?? '' });
       return;
     }
     let active = true;
     resolveCatalogMedia(item).then(media => {
       if (active && media?.artworkUrl) {
-        setFallbackUrl(media.artworkUrl);
+        setResolved({ id: item.id, url: media.artworkUrl });
       }
     });
     return () => {
@@ -163,7 +171,7 @@ export function useArtworkUrl(item?: ArtworkTarget | null): string {
     };
   }, [item?.id, item?.image, item?.artist, item?.name, item?.album]);
 
-  return item?.image || fallbackUrl || '';
+  return (!artist && item?.image) || (resolved.id === item?.id ? resolved.url : '') || '';
 }
 
 export function AmbientBackdrop({
@@ -201,7 +209,7 @@ export function Cover({
   return (
     <span className={`cover ${size} ${round ? 'round' : ''}`}>
       {src ? (
-        <img src={src} alt={`Capa de ${item.name}`} loading="lazy" onError={() => setFailedSrc(src)} />
+        <img src={src} alt={`${item.id.startsWith('["artists"') ? 'Foto de' : 'Capa de'} ${item.name}`} loading="lazy" onError={() => setFailedSrc(src)} />
       ) : (
         <Disc3 aria-hidden="true" />
       )}
@@ -210,12 +218,13 @@ export function Cover({
 }
 
 export function Change({ value, hiatusWeeks }: { value: ChartEntry['change']; hiatusWeeks?: number | null }) {
+  const durationMode = useContext(DurationContext);
   if (value === 'NEW') return <span className="change new" title="Estreia no Top 100" aria-label="Estreia no Top 100">NEW</span>;
   if (value === 'RE') {
-    const label = hiatusWeeks && hiatusWeeks > 0 ? `Retorno após ${hiatusWeeks} ${hiatusWeeks === 1 ? 'semana' : 'semanas'} fora do chart` : 'Retorno ao Top 100';
+    const label = hiatusWeeks && hiatusWeeks > 0 ? `Retorno após ${formatWeeks(hiatusWeeks, durationMode)} fora do chart` : 'Retorno ao Top 100';
     return (
       <span className="change re" title={label} aria-label={label}>
-        RE{hiatusWeeks && hiatusWeeks > 0 ? <small className="re-gap">·{hiatusWeeks}s</small> : null}
+        RE{hiatusWeeks && hiatusWeeks > 0 ? <small className="re-gap">·{durationMode === 'weeks' ? `${hiatusWeeks}s` : formatWeeks(hiatusWeeks, durationMode)}</small> : null}
       </span>
     );
   }

@@ -70,7 +70,7 @@ export function DeviceSync({ timezone, onError, onNotice }: { timezone: string; 
         // Nuvem vazia (apagada ou servidor novo): começa da revisão 0, sem conflito fantasma.
         if (!remote) base = 0;
         if (remote && remote.revision !== state.revision) {
-          const decrypted = await decryptProject(acc, remote.payload);
+          const decrypted = await decryptProject(acc, remote.payload, abort.signal);
           const changes = diffProjects(local, decrypted).length;
           if (changes) { setConflict({ remote: decrypted, revision: remote.revision, local, changes }); return; }
           base = remote.revision;
@@ -98,7 +98,7 @@ export function DeviceSync({ timezone, onError, onNotice }: { timezone: string; 
       if (!remoteProject) {
         const remote = await fetchRemote(acc, abort.signal);
         if (!remote) { onNotice('Ainda não há projeto salvo com esta chave. Toque em Enviar neste aparelho primeiro.'); return; }
-        remoteProject = await decryptProject(acc, remote.payload); remoteRevision = remote.revision;
+        remoteProject = await decryptProject(acc, remote.payload, abort.signal); remoteRevision = remote.revision;
       }
       const audio = state.includeAudio ? await restoreAudio(acc, remoteProject, abort.signal) : { restored: 0, missing: 0 };
       const changed = await applyProject(remoteProject);
@@ -122,7 +122,8 @@ export function DeviceSync({ timezone, onError, onNotice }: { timezone: string; 
     return () => window.removeEventListener('online', retry);
   }, [state?.pending, state?.key]);
 
-  const exportFile = async () => { const project = await collectProject(); download(new Blob([JSON.stringify(project, null, 1)], { type: 'application/json' }), `lastchart-projeto-${new Date().toISOString().slice(0, 10)}.json`); onNotice('Projeto exportado. Ele não contém scrobbles, chave de API nem arquivos de áudio.'); };
+  const exportFile = async () => { try { const project = await collectProject(); download(new Blob([JSON.stringify(project)], { type: 'application/json' }), `lastchart-projeto-${new Date().toISOString().slice(0, 10)}.json`); onNotice('Projeto exportado com histórico e preferências. Chave de API, tokens e arquivos de áudio não entram no arquivo.'); } catch (e) { handle(e); } };
+  const mergeAndPush = () => { if (!conflict) return; try { void push({ base: conflict.revision, project: mergeProjects(conflict.local, conflict.remote) }); } catch (e) { handle(e); } };
   const importFile = async (file?: File) => {
     if (!file) return;
     try { const project = parseProject(await file.text()); const changed = await applyProject(project); onNotice(`Projeto importado (${changed} ajustes). Recarregando…`); setTimeout(() => window.location.reload(), 900); }
@@ -130,7 +131,7 @@ export function DeviceSync({ timezone, onError, onNotice }: { timezone: string; 
   };
 
   return <div className="device-sync">
-    <p className="sync-explain"><ShieldCheck size={16} /> <span><strong>O que vai:</strong> ajustes, estúdio, favoritos, épocas, cédulas de premiação, preferências e revisões de metadados, cifrados neste aparelho com a sua chave. <strong>O que fica:</strong> scrobbles (rebaixáveis do Last.fm), chave de API e logins de streaming. Áudio só se você ativar.</span></p>
+    <p className="sync-explain"><ShieldCheck size={16} /> <span><strong>Seu backstage em qualquer tela:</strong> histórico de todas as fontes, ajustes, estúdio, favoritos, atalhos, premiações e metadados. Tudo cifrado neste aparelho. Crie uma chave, toque em Enviar e use a mesma chave em outro aparelho para Receber, sem importar suas músicas de novo. Chave de API e logins de streaming ficam neste aparelho. Áudio só se você ativar. O histórico é comprimido e compartilha a cota de 64 MB com os áudios; o envio é manual.</span></p>
     {!state ? <div className="sync-setup">
       {newKey ? <div className="sync-key-box"><span>Sua chave (guarde como uma senha; sem ela os dados na nuvem não podem ser lidos):</span><code>{newKey}</code>
         <div className="inline-actions"><button type="button" className="button small" onClick={() => { void navigator.clipboard?.writeText(newKey).then(() => onNotice('Chave copiada.')).catch(() => onError('Copie a chave manualmente.')); }}><Copy size={14} /><span>Copiar</span></button><button type="button" className="button small primary" onClick={() => { update({ key: newKey, revision: 0, lastSync: 0, includeAudio: false, pending: false }); setNewKey(''); }}><span>Guardei, continuar</span></button></div></div>
@@ -146,7 +147,7 @@ export function DeviceSync({ timezone, onError, onNotice }: { timezone: string; 
       {busy ? <div className="catalog-progress" role="status"><MusicLoader size="sm" /><span>{busy}{progress ? ` ${Math.round(progress.sent / Math.max(1, progress.total) * 100)}%` : ''}</span>{progress && <progress max={progress.total || 1} value={progress.sent} />}<button type="button" className="button small" onClick={() => controller.current?.abort()}><Square size={13} /><span>Cancelar</span></button></div>
         : <div className="inline-actions"><button type="button" className="button primary" onClick={() => void push()}><CloudUpload size={16} /><span>Enviar deste aparelho</span></button><button type="button" className="button" onClick={() => void pull()}><CloudDownload size={16} /><span>Receber da nuvem</span></button></div>}
       {conflict && <div className="sync-conflict" role="alertdialog" aria-label="Conflito de sincronização"><strong>Outro aparelho salvou uma versão diferente (revisão {conflict.revision}).</strong><p>{conflict.changes} ajustes diferem. Nada foi apagado; escolha como continuar:</p>
-        <div className="inline-actions"><button type="button" className="button small primary" onClick={() => void push({ base: conflict.revision, project: mergeProjects(conflict.local, conflict.remote) })}>Mesclar (manter deste aparelho + novidades)</button><button type="button" className="button small" onClick={() => void push({ base: conflict.revision, project: conflict.local })}>Manter deste aparelho</button><button type="button" className="button small" onClick={() => void pull(conflict.remote, conflict.revision)}>Usar da nuvem</button></div></div>}
+        <div className="inline-actions"><button type="button" className="button small primary" onClick={mergeAndPush}>Mesclar (manter deste aparelho + novidades)</button><button type="button" className="button small" onClick={() => void push({ base: conflict.revision, project: conflict.local })}>Manter deste aparelho</button><button type="button" className="button small" onClick={() => void pull(conflict.remote, conflict.revision)}>Usar da nuvem</button></div></div>}
       <div className="inline-actions"><button type="button" className="text-button" onClick={() => { update(null); setRemoteInfo(null); onNotice('Chave removida deste aparelho. Seus dados locais continuam aqui.'); }}><LogOut size={14} /> Sair deste aparelho</button>
         <button type="button" className="text-button danger" onClick={async () => { if (!confirm('Apagar o projeto e os áudios desta chave na nuvem? Os dados deste aparelho não serão apagados.')) return; try { await deleteRemote(await account()); update({ ...state, revision: 0, lastSync: 0 }); setRemoteInfo(null); onNotice('Dados da nuvem apagados para esta chave.'); } catch (e) { handle(e); } }}><Trash2 size={14} /> Apagar da nuvem</button></div>
     </div>}
