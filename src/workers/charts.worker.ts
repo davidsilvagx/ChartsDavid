@@ -1,3 +1,4 @@
+import { packCharts } from '../lib/chartTransfer';
 import { buildCharts, getLibrary } from '../lib/charts';
 import { closedCache } from '../lib/closedWeeks';
 import type { AliasRule, CachedWeek, Kind, SourceFilter, Week } from '../lib/types';
@@ -20,8 +21,7 @@ self.onmessage = (
     const series = buildCharts(weeks, [...closed, ...cached.filter(c => open.has(c.week.id))], kind, deduplicate, aliases, sourceFilter);
     self.postMessage({
       id,
-      charts: series.filter(w => !w.partial),
-      liveChart: series.find(w => w.partial) ?? null,
+      packed: packCharts(series),
       library: getLibrary(closed, kind, deduplicate, aliases, sourceFilter),
     });
   } catch (error) {
