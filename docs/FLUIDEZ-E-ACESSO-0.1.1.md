@@ -7,11 +7,13 @@
 - [x] Transporte dos charts compartilha as trajetórias; as versões históricas de cada trajetória são materializadas quando consultadas. Preparação da interface em lotes com pausas após cerca de 8 ms; worker de cálculo encerrado ao entregar os resultados.
 - [x] Testes preservam posições, lacunas OUT, semanas desconhecidas e snapshots históricos após a compactação.
 - [x] Traços de linhas agrupados por competidor, mantendo as curvas e sem conectar lacunas. Blur de superfícies fixas removido no toque/tablet, preservando cores e acabamento.
+- [x] Contagens de discografia calculadas uma vez por acervo e opções de artista memorizadas; o progresso da gravação não varre a biblioteca para cada artista.
 - [x] Gravação automática em 30 fps no celular; opção de 60 fps preservada. Rótulos informam que a escolha também vale para a exportação.
 - [x] Marca maior fora do cartão móvel; avatar escolhido lembrado após logout. Apenas aparência é lembrada, sem e-mail, senha ou sessão; imagens exigem HTTPS.
 - [x] Fundo com gradações animadas por transform/opacity, ícones musicais e respeito à preferência de movimento reduzido.
 - [x] Corrigida rolagem interna invisível no acesso: o fundo decorativo criava uma área rolável e o foco deslocava o cartão. O contêiner agora usa clip; avatar e formulário ficam empilhados também no tablet/desktop.
 - [x] Opera, zoom 100%: cadastro em 320×568 sem overflow; entrada em 390×844, cadastro no tablet 768×1024 e recuperação no desktop 1440×900 alinhados. A entrada em 320×568 usa 39 px de rolagem natural, com todos os controles acessíveis; não há rolagem interna invisível.
+- [x] Login em duas abas: ambas autenticadas, com uma única navegação do documento para trocar o espaço da conta, sem recargas em cadeia.
 - [x] 229 testes em 34 arquivos, TypeScript e build aprovados.
 
 ## Evidências e limites
