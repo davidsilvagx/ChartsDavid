@@ -1,3 +1,4 @@
+import { unpackCharts } from './chartTransfer';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   defaults,
@@ -159,11 +160,13 @@ export function useData(kind: Kind) {
       if (data.id !== reqId) return;
       if (data.error) setError(data.error);
       else {
-        setCharts(data.charts);
-        setLiveChart(data.liveChart);
+        const series=unpackCharts(data.packed);
+        setCharts(series.filter(week=>!week.partial));
+        setLiveChart(series.find(week=>week.partial)??null);
         setLibrary(data.library);
       }
       setComputing(false);
+      worker.terminate();
     };
     worker.onerror = () => {
       setComputing(false);
