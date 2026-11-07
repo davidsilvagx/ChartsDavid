@@ -1,3 +1,6 @@
+import { archiveWork } from "./archiveWork";
+import { stable, snapshotFields } from "./archiveCompute";
+export { snapshotFields } from "./archiveCompute";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   allowedLocal,
@@ -10,7 +13,6 @@ import {
 } from "./projectSync";
 import { deleteMeta, getMeta, putMeta, readMetaRange } from "./storage";
 import type { ClipBank } from "./leaderAudio";
-import { parseBackup } from "./export";
 
 const BUCKET = "lastchart-private",
   BASE = "account-sync:base:v1";
@@ -44,25 +46,6 @@ export class AccountConflict extends Error {
     );
   }
 }
-const stable = (value: unknown): string =>
-  JSON.stringify(value, (_, v) =>
-    v && typeof v === "object" && !Array.isArray(v)
-      ? Object.fromEntries(
-          Object.keys(v)
-            .sort()
-            .map((k) => [k, v[k]]),
-        )
-      : v,
-  );
-export function snapshotFields(snapshot: AccountSnapshot) {
-  const fields: Record<string, unknown> = {
-    "secret:apiKey": snapshot.lastfmApiKey,
-  };
-  for (const group of ["local", "meta", "audio"] as const)
-    for (const [key, value] of Object.entries(snapshot.project[group]))
-      fields[`${group}:${key}`] = value;
-  return fields;
-}
 export async function snapshotHashes(snapshot: AccountSnapshot) {
   const pairs = await Promise.all(
     Object.entries(snapshotFields(snapshot)).map(async ([key, value]) => [
@@ -72,24 +55,11 @@ export async function snapshotHashes(snapshot: AccountSnapshot) {
   );
   return Object.fromEntries(pairs) as Record<string, string>;
 }
-export async function snapshotSignature(snapshot: AccountSnapshot) {
-  let history: unknown = null;
-  if (snapshot.project.history) {
-    const parsed = parseBackup(snapshot.project.history);
-    history = {
-      user: parsed.settings.user.toLowerCase(),
-      startDate: parsed.settings.startDate,
-      timezone: parsed.settings.timezone,
-      weeks: parsed.weeks.sort((a, b) => a.week.start - b.week.start).map(w => ({
-        ...w,
-        scrobbles: [...w.scrobbles].sort((a, b) => {
-          const left = stable(a), right = stable(b);
-          return left < right ? -1 : left > right ? 1 : 0;
-        }),
-      })),
-    };
-  }
-  return sha256Hex(stable({ ...snapshotFields(snapshot), history }));
+const fingerprints=new WeakMap<AccountSnapshot,Promise<string>>();
+export function snapshotSignature(snapshot:AccountSnapshot){
+ let pending=fingerprints.get(snapshot);
+ if(!pending){pending=archiveWork({method:'fingerprint',snapshot});fingerprints.set(snapshot,pending);pending.catch(()=>fingerprints.delete(snapshot));}
+ return pending;
 }
 export async function collectAccountSnapshot(): Promise<AccountSnapshot> {
   const project = await collectProject();
