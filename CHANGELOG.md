@@ -1,5 +1,9 @@
 # Histórico de versões
 
+## 0.1.2 · beta · 2026-11-06
+
+- Mantém o backup adiado na troca imediata entre prévia e gravação.
+
 ## 0.1.1 · beta · 2026-11-06
 
 - Corrige transições de sessão entre abas, reduz trabalho de backup e desenho dos gráficos e redesenha o acesso com avatar lembrado.
