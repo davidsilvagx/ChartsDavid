@@ -6,4 +6,4 @@ export function setMediaBusy(source:string,busy:boolean){
  if(busy)active.add(source);else active.delete(source);
  if(!active.size){for(const resume of waiting)resume();waiting.clear();}
 }
-export function waitForMediaIdle():Promise<void>{return active.size?new Promise(resolve=>waiting.add(resolve)):Promise.resolve();}
+export async function waitForMediaIdle():Promise<void>{while(active.size)await new Promise<void>(resolve=>waiting.add(resolve));}
