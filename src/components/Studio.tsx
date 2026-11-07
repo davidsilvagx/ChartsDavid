@@ -182,10 +182,11 @@ export function Studio({
     () => (picking ? library.filter(i => `${i.name} ${i.artist} ${i.album}`.toLowerCase().includes(query.toLowerCase())) : []),
     [library, query, picking],
   );
-  const artists = useMemo(
-    () => [...new Set(library.map(i => i.artist))].sort((a, b) => a.localeCompare(b)),
-    [library],
-  );
+  const artistCounts=useMemo(()=>{const counts=new Map<string,number>();for(const item of library)counts.set(item.artist,(counts.get(item.artist)??0)+1);return counts;},[library]);
+  const artists=useMemo(()=>[...artistCounts.keys()].sort((a,b)=>a.localeCompare(b)),[artistCounts]);
+  // Recording progress renders frequently; never rescan the library per option.
+  const artistOptions=useMemo(()=>artists.map(a=><option key={a} value={a}>{a} ({artistCounts.get(a)})</option>),[artists,artistCounts]);
+  const pickerArtistOptions=useMemo(()=>artists.map(a=><option key={a} value={a}>{a} ({artistCounts.get(a)} itens)</option>),[artists,artistCounts]);
 
   // Track viewport orientation so mobile expanded widescreen ("deitado") rotates cleanly when needed
   useEffect(() => {
@@ -878,11 +879,7 @@ export function Studio({
                 }}
               >
                 <option value="">+ Discografia de artista…</option>
-                {artists.map(a => (
-                  <option key={a} value={a}>
-                    {a} ({library.filter(i => i.artist === a).length})
-                  </option>
-                ))}
+                {artistOptions}
               </select>
             )}
           </div>
@@ -1156,11 +1153,7 @@ export function Studio({
               }}
             >
               <option value="">Escolha um artista para adicionar todas as faixas…</option>
-              {artists.map(a => (
-                <option key={a} value={a}>
-                  {a} ({library.filter(i => i.artist === a).length} itens)
-                </option>
-              ))}
+              {pickerArtistOptions}
             </select>
           </label>
 
