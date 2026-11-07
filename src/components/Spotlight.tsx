@@ -1,3 +1,4 @@
+import { entryWithoutRun } from '../lib/chartTransfer';
 import { useContext, useEffect, useMemo, useState, type ReactElement } from 'react';
 import { ArrowDownRight, ArrowUpRight, Download, Film, Fingerprint, History, Medal, Sparkles, Trophy, Users } from 'lucide-react';
 import type { CachedWeek, ChartWeek, Item, Kind, Settings, SourceFilter } from '../lib/types';
@@ -42,7 +43,7 @@ export function Spotlight({charts,library,cached,settings,source,owner,namespace
     const worker=new Worker(new URL('../workers/spotlight.worker.ts',import.meta.url),{type:'module'});
     worker.onmessage=({data})=>{if(!active)return;setLoading(false);if(data.error)setError(data.error);else setData(data.result);worker.terminate();};
     worker.onerror=()=>{if(active){setLoading(false);setError('Não foi possível abrir este período. Tente novamente.');}worker.terminate();};
-    worker.postMessage({charts:chosen.map(chart=>({...chart,entries:chart.entries.map(entry=>({...entry,run:[]}))})),library});
+    worker.postMessage({charts:chosen.map(chart=>({...chart,entries:chart.entries.map(entry=>({...entryWithoutRun(entry),run:[]}))})),library});
     return()=>{active=false;worker.terminate();};
   },[chosen,library]);
   // Indicados de todos os tipos só quando a premiação é aberta (Worker, sem travar a tela).
