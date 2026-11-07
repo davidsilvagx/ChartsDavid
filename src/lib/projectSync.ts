@@ -1,3 +1,4 @@
+import { archiveWork } from './archiveWork';
 import { importWeeks, putMeta, readMetaRange, readWeeks } from './storage';
 import { backupJSON, parseBackup } from './export';
 import { defaults, type CachedWeek, type Settings } from './types';
@@ -61,7 +62,7 @@ export async function collectProject(storage: Storage = localStorage): Promise<P
   let history: string | undefined;
   if (local['lastchart-studio:settings:v1']) {
     const settings: Settings = { ...defaults, ...JSON.parse(local['lastchart-studio:settings:v1']), apiKey: '' };
-    history = backupJSON(settings, await readWeeks(settings), null);
+    history = await archiveWork({method:'backup',settings,weeks:await readWeeks(settings),profile:null});
   }
   return { app: 'LastChartStudioPro', type: 'project', version: 1, exportedAt: new Date().toISOString(), device: deviceLabel(), local, meta, audio, history };
 }
