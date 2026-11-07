@@ -473,7 +473,8 @@ export function Studio({
       const ctx = output.getContext('2d', { alpha: false });
       if (!ctx) throw new Error('Canvas indisponível.');
 
-      stream = output.captureStream(60);
+      const recordFps = settings.previewFps ?? ((matchMedia('(pointer:coarse)').matches || innerWidth<=860)?30:60);
+      stream = output.captureStream(recordFps);
       if(leaderRecording?.destination){
         for(const track of leaderRecording.destination.stream.getAudioTracks())stream.addTrack(track);
         await leaderRecording.setLeader(leaderAt(0));
@@ -512,8 +513,11 @@ export function Studio({
       const start = performance.now();
       const duration = Math.max(2, playback.duration / settings.speed + 1);
       let lastPreview=0,lastProgress=0;
+      let lastOutput=0;
       const tick = (now: number) => {
         if (controller.signal.aborted) return;
+        if(now-lastOutput < 1000/recordFps-.5){frame=requestAnimationFrame(tick);return;}
+        lastOutput=now;
         const elapsed = (now - start) / 1000;
         const p = playback.at(elapsed * settings.speed);
         drawChart(ctx, w, h, { charts: timeline, items: selectedItems, settings, position: p, dark: useDarkCanvas, reduced, username, kind });
@@ -578,7 +582,7 @@ export function Studio({
           <div className="panel-heading studio-header-bar">
             <div>
               <span className="eyebrow">
-                {expanded ? 'MODO CINEMA' : 'ESTÚDIO DE ANIMAÇÃO'} · PRÉVIA {settings.previewFps ?? ((window.matchMedia('(pointer: coarse)').matches || window.innerWidth<=860)?30:60)} FPS · EXPORTAÇÃO 60 FPS
+                {expanded ? 'MODO CINEMA' : 'ESTÚDIO DE ANIMAÇÃO'} · PRÉVIA {settings.previewFps ?? ((window.matchMedia('(pointer: coarse)').matches || window.innerWidth<=860)?30:60)} FPS · EXPORTAÇÃO CONFIGURÁVEL
               </span>
               <h2>{settings.mode === 'bars' ? 'Corrida de Reproduções' : 'Trajetória no Ranking'}</h2>
             </div>
@@ -804,7 +808,7 @@ export function Studio({
                 <ImageDown size={17} />
                 <span>Salvar frame PNG</span>
               </button>
-              <span className="muted small-text">Renderização fluida 60 fps · WebM/MP4 nativo</span>
+              <span className="muted small-text">Vídeo WebM/MP4 · fluidez configurável</span>
             </div>
           )}
         </div>
@@ -1028,7 +1032,7 @@ export function Studio({
               Fundo do gráfico
               <small>Acompanha o tema do aplicativo, inclusive nas exportações: {dark ? 'escuro' : 'claro'}.</small>
             </label>
-            <label>Fluidez da prévia<select aria-label="Fluidez da prévia" value={settings.previewFps ?? 'auto'} onChange={e=>update('previewFps',e.target.value==='auto'?undefined:Number(e.target.value) as 30|60)}><option value="auto">Automática · 30 fps no celular</option><option value="30">30 fps · menor consumo</option><option value="60">60 fps · maior fluidez</option></select><small>A exportação de vídeo mantém 60 fps.</small></label>
+            <label>Fluidez da prévia e do vídeo<select aria-label="Fluidez da prévia e do vídeo" value={settings.previewFps ?? 'auto'} onChange={e=>update('previewFps',e.target.value==='auto'?undefined:Number(e.target.value) as 30|60)}><option value="auto">Automática · 30 fps no celular</option><option value="30">30 fps · menor consumo</option><option value="60">60 fps · maior fluidez</option></select><small>A gravação segue essa escolha. No automático, o celular usa 30 fps para reduzir o consumo; 60 fps continua disponível.</small></label>
 
             {settings.mode === 'lines' && <label>Quando todo mundo sai do chart<select aria-label="Intervalos sem presença no chart" value={settings.gapMode ?? 'keep'} disabled={recording} onChange={e => update('gapMode', e.target.value as StudioSettings['gapMode'])}><option value="keep">Manter todo o intervalo · original</option><option value="accelerate">Acelerar intervalos vazios em 8×</option><option value="compact">Compactar · mostrar início e fim da ausência</option><option value="skip">Pular · manter só um quadro OUT</option></select><small>Opcional, na prévia e no vídeo exportado. Só afeta trechos sem nenhum dos itens selecionados no Top. Semanas não baixadas nunca são puladas. Datas reais são preservadas.</small></label>}
             <label>
