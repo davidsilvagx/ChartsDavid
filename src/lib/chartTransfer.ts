@@ -10,10 +10,17 @@ export function packCharts(weeks:ChartWeek[]):PackedCharts {
  for(const week of weeks)for(const entry of week.entries){const old=runs.get(entry.id);if(!old||old.length<entry.run.length)runs.set(entry.id,entry.run);}
  return {runs:[...runs],weeks:weeks.map(week=>({...week,entries:week.entries.map(entry=>({...entryWithoutRun(entry),run:entry.run.length}))}))};
 }
+function decodeWeek(week:PackedCharts['weeks'][number],runs:Map<string,ChartEntry['run']>):ChartWeek {
+ for(const packed of week.entries){const length=packed.run,master=runs.get(packed.id)??[];let cached:ChartEntry['run']|undefined;
+  Object.defineProperty(packed,'run',{enumerable:true,configurable:true,get:()=>cached??=master.slice(0,length)});
+ }
+ return week as unknown as ChartWeek;
+}
 export function unpackCharts(packet:PackedCharts):ChartWeek[]{
- const runs=new Map(packet.runs);
- return packet.weeks.map(week=>({...week,entries:week.entries.map(packed=>{
-  const length=packed.run,master=runs.get(packed.id)??[];let cached:ChartEntry['run']|undefined;
-  return Object.defineProperty({...packed},'run',{enumerable:true,get:()=>cached??=master.slice(0,length)}) as unknown as ChartEntry;
- })}));
+ const runs=new Map(packet.runs);return packet.weeks.map(week=>decodeWeek(week,runs));
+}
+export async function unpackChartsProgressively(packet:PackedCharts):Promise<ChartWeek[]>{
+ const runs=new Map(packet.runs),weeks:ChartWeek[]=[];let started=performance.now();
+ for(const week of packet.weeks){weeks.push(decodeWeek(week,runs));if(performance.now()-started>8){await new Promise<void>(resolve=>setTimeout(resolve,0));started=performance.now();}}
+ return weeks;
 }
