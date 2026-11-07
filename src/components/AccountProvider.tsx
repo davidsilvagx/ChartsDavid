@@ -1,3 +1,4 @@
+import { mediaIsBusy, waitForMediaIdle } from "../lib/mediaActivity";
 import {
   lazy,
   Suspense,
@@ -164,6 +165,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
         );
         return;
       }
+      if(mediaIsBusy()&&!force){setStatus("Tudo salvo neste aparelho. O backup continua após a animação.");return;}
       running.current = true;
       setBusy(true);
       setStatus("Sincronizando seu backstage…");
@@ -199,6 +201,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
               setLastSync(Date.parse(head.updated_at));
               break;
             }
+            await waitForMediaIdle();
             const remote = await readAccountSnapshot(supabase, user.id, head);
             remoteSignature = await snapshotSignature(remote);
             const importing =
@@ -257,6 +260,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
             );
           }
           if (startSignature !== (await snapshotSignature(next))) {
+            await waitForMediaIdle();
             applying.current = true;
             try {
               await applyAccountSnapshot(supabase, user.id, next);
