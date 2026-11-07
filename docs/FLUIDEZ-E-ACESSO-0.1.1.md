@@ -1,4 +1,4 @@
-# Fluidez e acesso · beta 0.1.1
+# Fluidez e acesso · beta 0.1.1 e 0.1.2
 
 - [x] Analisados os vídeos enviados: rolagem da página e gravação de linhas, com arquivos de aproximadamente 12 e 32 segundos.
 - [x] Sessão atual consultada antes da validação no servidor; falha de rede não troca o espaço compartilhado para convidado. Trocas de preferências usam trava entre abas; removida a navegação indiscriminada de outras janelas pelo service worker.
@@ -14,7 +14,7 @@
 - [x] Corrigida rolagem interna invisível no acesso: o fundo decorativo criava uma área rolável e o foco deslocava o cartão. O contêiner agora usa clip; avatar e formulário ficam empilhados também no tablet/desktop.
 - [x] Opera, zoom 100%: cadastro em 320×568 sem overflow; entrada em 390×844, cadastro no tablet 768×1024 e recuperação no desktop 1440×900 alinhados. A entrada em 320×568 usa 39 px de rolagem natural, com todos os controles acessíveis; não há rolagem interna invisível.
 - [x] Login em duas abas: ambas autenticadas, com uma única navegação do documento para trocar o espaço da conta, sem recargas em cadeia.
-- [x] 229 testes em 34 arquivos, TypeScript e build aprovados.
+- [x] 230 testes em 34 arquivos, TypeScript e build aprovados.
 
 ## Evidências e limites
 
@@ -23,3 +23,5 @@ Carga isolada de QA: 540 semanas e 183.600 reproduções sintéticas, identifica
 A gravação de cinco períodos concluiu e baixou WebM/VP9 de 1.606.905 bytes, 1280×720, 125 quadros e aproximadamente 4,97 s; intervalo mediano entre quadros de 34 ms, aferido pelos timestamps do contêiner. A medição não equivale a 30 fps constantes em todos os dispositivos.
 
 As provas responsivas são emulação no Opera do computador. Validação física de GPU, bateria e barra do sistema em Android/iPadOS continua dependendo desses aparelhos. Nenhum resultado é promessa de que todos os aparelhos terão desempenho idêntico.
+
+Complemento 0.1.2: a fila de backup revalida a atividade ao ser retomada. Trocar diretamente da prévia para a gravação não libera trabalho pesado nesse intervalo; teste de concorrência aprovado.
