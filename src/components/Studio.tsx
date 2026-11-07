@@ -1,3 +1,4 @@
+import { setMediaBusy } from '../lib/mediaActivity';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type SetStateAction } from 'react';
 import {
   BarChart2,
@@ -297,6 +298,8 @@ export function Studio({
   useEffect(()=>{if(!settings.leaderAudio){previewAudio.current?.dispose();previewAudio.current=null;setAudioStatus({phase:'idle',id:null});}},[settings.leaderAudio]);
   useEffect(()=>{previewAudio.current?.setVolume(settings.leaderVolume??.7);},[settings.leaderVolume]);
   useEffect(()=>{previewAudio.current?.dispose();previewAudio.current=null;if(playing&&settings.leaderAudio)resumeSound();},[audioMode]);
+
+  useEffect(()=>{setMediaBusy('studio',playing||recording);return()=>setMediaBusy('studio',false);},[playing,recording]);
 
   // Zero-re-render 60fps animation loop
   useEffect(() => {
