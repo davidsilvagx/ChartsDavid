@@ -89,3 +89,13 @@ it('renderiza títulos dentro da bolha no celular, watermark com nome do usuári
     expect(texts).toContain(`#${rank}`);
   }
 });
+
+it('groups line history into a single glowing stroke per competitor without bridging an OUT gap',()=>{
+ const weeks=makeWeeks({...defaults,startDate:'2026-01-02'},Date.parse('2026-06-25T12:00Z'));
+ const cache:CachedWeek[]=weeks.map((week,i)=>({key:week.id,week,cutoff:week.end,fetchedAt:1,duplicates:0,scrobbles:i===10?[]:[{track:'Trajectory',artist:'QA',album:'',image:'',timestamp:week.start+100}]}));
+ const charts=buildCharts(weeks,cache,'tracks');const items=getLibrary(cache,'tracks');let glow=0,moves=0,curves=0;const stack:number[]=[];
+ const gradient={addColorStop:vi.fn()};
+ const ctx=new Proxy({shadowBlur:0,save(){stack.push(ctx.shadowBlur);},restore(){ctx.shadowBlur=stack.pop()??0;},stroke(){if(ctx.shadowBlur>0)glow++;},moveTo(){moves++;},bezierCurveTo(){curves++;},fillText(){},measureText:(s:string)=>({width:s.length*5}),createLinearGradient:()=>gradient,createRadialGradient:()=>gradient} as unknown as CanvasRenderingContext2D,{get(target,key){return Reflect.get(target,key)??vi.fn();}});
+ drawChart(ctx,1280,720,{charts,items,settings:{...studioDefaults,mode:'lines',spacing:15},position:charts.length-1,dark:true});
+ expect(glow).toBe(1);expect(curves).toBeGreaterThan(10);expect(moves).toBeGreaterThan(curves-1);
+});
