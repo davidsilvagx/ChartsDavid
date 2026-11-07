@@ -253,6 +253,7 @@ function drawChartFrame(ctx: CanvasRenderingContext2D, width: number, height: nu
       ctx.shadowBlur = 8;
     }
 
+    ctx.beginPath();
     for (let i = first; i <= current; i++) {
       const rank = rankMaps[i]?.get(item.id);
       const next = rankMaps[i + 1]?.get(item.id);
@@ -263,7 +264,6 @@ function drawChartFrame(ctx: CanvasRenderingContext2D, width: number, height: nu
         const t = i < current ? 1 : fraction;
         const ease = t * t * (3 - 2 * t);
         const ny = py + (y(next) - py) * ease;
-        ctx.beginPath();
         ctx.moveTo(px, py);
         if (t === 1) {
           ctx.bezierCurveTo(px + spacing / 2, py, px + spacing / 2, y(next), px + spacing, y(next));
@@ -274,7 +274,6 @@ function drawChartFrame(ctx: CanvasRenderingContext2D, width: number, height: nu
             ctx.lineTo(px + spacing * f, py + (y(next) - py) * (f * f * (3 - 2 * f)));
           }
         }
-        ctx.stroke();
         if (i === current) {
           // Discrete rank switch without intermediate roulette numbers
           const shownRank = fraction >= 0.85 ? next : rank;
@@ -287,6 +286,8 @@ function drawChartFrame(ctx: CanvasRenderingContext2D, width: number, height: nu
         cardRows.push({ item, color, rank, cy: py, iy: py, prev: rankMaps[current - 1]?.get(item.id), hiatus });
       }
     }
+    // One glow/stroke per competitor instead of one costly blur per segment.
+    ctx.stroke();
     ctx.restore();
   });
 

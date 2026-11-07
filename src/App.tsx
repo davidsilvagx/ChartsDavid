@@ -1,3 +1,4 @@
+import { rememberLoginAppearance } from './lib/loginAppearance';
 import { lazy, Suspense, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import {
@@ -169,6 +170,7 @@ function App() {
   } = data;
 
   const isGuest = isGuestProfile(settings.user);
+  useEffect(()=>{if(!isGuest||settings.avatar&&settings.avatar!=='lastfm')rememberLoginAppearance(settings.avatar,isGuest?null:profile);},[isGuest,settings.avatar,profile?.image]);
 
   const [year, setYear] = useState('all');
   const [historyOpen, setHistoryOpen] = useState(false);

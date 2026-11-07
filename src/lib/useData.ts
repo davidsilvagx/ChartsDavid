@@ -1,3 +1,4 @@
+import { unpackChartsProgressively } from './chartTransfer';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   defaults,
@@ -155,15 +156,20 @@ export function useData(kind: Kind) {
     const reqId = ++workerReqId.current;
     setComputing(true);
     const worker = new Worker(new URL('../workers/charts.worker.ts', import.meta.url), { type: 'module' });
-    worker.onmessage = ({ data }) => {
-      if (data.id !== reqId) return;
+    let active=true;
+    worker.onmessage = async ({ data }) => {
+      worker.terminate();
+      if (!active || data.id !== reqId) return;
       if (data.error) setError(data.error);
       else {
-        setCharts(data.charts);
-        setLiveChart(data.liveChart);
+        const series=await unpackChartsProgressively(data.packed);
+        if(!active||workerReqId.current!==reqId)return;
+        setCharts(series.filter(week=>!week.partial));
+        setLiveChart(series.find(week=>week.partial)??null);
         setLibrary(data.library);
       }
       setComputing(false);
+      worker.terminate();
     };
     worker.onerror = () => {
       setComputing(false);
@@ -178,7 +184,7 @@ export function useData(kind: Kind) {
       aliases: settings.aliases,
       sourceFilter,
     });
-    return () => worker.terminate();
+    return () => {active=false;worker.terminate();};
   }, [weeks, cached, kind, settings.deduplicate, settings.aliases, sourceFilter, revision]);
 
   useEffect(() => () => controller.current?.abort(), []);

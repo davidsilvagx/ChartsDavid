@@ -1,3 +1,4 @@
+import { mediaIsBusy, waitForMediaIdle } from "../lib/mediaActivity";
 import {
   lazy,
   Suspense,
@@ -11,6 +12,7 @@ import {
 } from "react";
 import { AccountLoading } from "./AccountLoading";
 import type { Session } from "@supabase/supabase-js";
+import { verifiedSession } from "../lib/verifiedSession";
 import { supabase } from "../lib/supabase";
 import { copyGuestDatabaseToAccount } from "../lib/storage";
 import {
@@ -18,6 +20,7 @@ import {
   workspaceOwner,
   rememberLoginIntent,
   hasLoginIntent,
+  captureWorkspace,
 } from "../lib/accountWorkspace";
 import {
   AccountConflict,
@@ -32,6 +35,7 @@ import {
   writeAccountSnapshot,
 } from "../lib/accountSync";
 
+const preferenceSignature = () => JSON.stringify(captureWorkspace());
 const AccountGate = lazy(() => import("./AccountGate").then(m => ({default:m.AccountGate})));
 interface AccountContextValue {
   session: Session | null;
@@ -56,6 +60,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null),
     [ready, setReady] = useState(false),
     [booting,setBooting] = useState(true),
+    [authFailed,setAuthFailed] = useState(false),
     [recovery, setRecovery] = useState(
       () => { try { return sessionStorage.getItem("lastchart-account:recovery") === "1"; } catch { return false; } },
     );
@@ -75,18 +80,21 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     authGeneration = useRef(0);
   useEffect(() => {
     alive.current = true;
-    const accept = async (next: Session | null, event?: string) => {
+    const mountedOwner = workspaceOwner();
+    const accept = async (_next: Session | null, event?: string) => {
       if (!alive.current || switching.current) return;
       const authAttempt=++authGeneration.current;
-      if (event === "PASSWORD_RECOVERY") {
+      setAuthFailed(false);
+      // Read the current persisted session, not a queued event from another tab.
+      let next: Session | null;
+      try {next=await verifiedSession(supabase.auth);}
+      catch {
+        if(alive.current && authAttempt===authGeneration.current){setReady(false);setAuthFailed(true);setStatus("Sua sessão não pôde ser confirmada. Verifique a conexão e tente novamente.");}
+        return;
+      }
+      if (event === "PASSWORD_RECOVERY" && next) {
         sessionStorage.setItem("lastchart-account:recovery", "1");
         setRecovery(true);
-      }
-      if (next) {
-        try {
-          const { data, error } = await supabase.auth.getUser(next.access_token);
-          if (error || !data.user?.email_confirmed_at || data.user.is_anonymous) next = null;
-        } catch { next = null; }
       }
       if (!alive.current || authAttempt!==authGeneration.current) return;
       if(next && sessionStorage.getItem("lastchart-account:entering")==="1")setEntering(true);
@@ -94,6 +102,11 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       if (workspaceOwner() !== owner) {
         switching.current = true;
         try {
+          const activate = async () => {
+            const current=await supabase.auth.getSession();
+            if(current.error)throw current.error;
+            if((current.data.session?.user.id??"guest")!==owner)throw Error("session_changed");
+            if(workspaceOwner()===owner)return;
           const bring =
             hasLoginIntent(next?.user.email ?? '') && workspaceOwner() === "guest" && owner !== "guest";
           if (bring) await copyGuestDatabaseToAccount(owner);
@@ -104,16 +117,21 @@ export function AccountProvider({ children }: { children: ReactNode }) {
               `lastchart-account:import-guest:${owner}`,
               "1",
             );
-          navigator.serviceWorker?.controller?.postMessage({type:"ACCOUNT_WORKSPACE_SWITCH"});
+          };
+          if(navigator.locks)await navigator.locks.request('lastchart-account:workspace-transition',activate);
+          else await activate();
           location.reload();
-        } catch {
+        } catch (error) {
           switching.current = false;
+          if(error instanceof Error && error.message==="session_changed"){void accept(null);return;}
+          setAuthFailed(true);
           setStatus(
             "Não foi possível abrir o espaço da conta. Libere espaço no aparelho e tente novamente.",
           );
         }
         return;
       }
+      if(mountedOwner!==owner){location.reload();return;}
       sessionRef.current = next;
       setSession(next);
       if(!next)setBooting(false);
@@ -122,12 +140,12 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     const { data } = supabase.auth.onAuthStateChange((event, next) => {
       setTimeout(() => void accept(next, event), 0);
     });
-    void supabase.auth.getSession().then(({ data, error }) => {
-      if (error) setStatus("Entre novamente para retomar sua conta.");
-      void accept(data.session);
-    });
+    // INITIAL_SESSION is emitted by the SDK after initialization. Calling
+    // getSession again here used to race that same event during tab reloads.
     const changed = (e: StorageEvent) => {
-      if (e.key === "lastchart-account:workspace-owner") location.reload();
+      if (e.key !== "lastchart-account:workspace-owner" || e.newValue === (sessionRef.current?.user.id ?? mountedOwner)) return;
+      setReady(false);
+      void accept(null);
     };
     window.addEventListener("storage", changed);
     return () => {
@@ -147,12 +165,14 @@ export function AccountProvider({ children }: { children: ReactNode }) {
         );
         return;
       }
+      if(mediaIsBusy()&&!force){setStatus("Tudo salvo neste aparelho. O backup continua após a animação.");return;}
       running.current = true;
       setBusy(true);
       setStatus("Sincronizando seu backstage…");
       try {
         for (let attempt = 0; attempt < 3; attempt++) {
-          const startedAt = generation.current;
+          const startedAt = generation.current, startedPreferences=preferenceSignature();
+          const edited = () => generation.current!==startedAt || preferenceSignature()!==startedPreferences;
           const base = await readAccountBase(),
             head = await readAccountHead(supabase, user.id);
           if (
@@ -181,6 +201,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
               setLastSync(Date.parse(head.updated_at));
               break;
             }
+            await waitForMediaIdle();
             const remote = await readAccountSnapshot(supabase, user.id, head);
             remoteSignature = await snapshotSignature(remote);
             const importing =
@@ -206,8 +227,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
             }
           }
           if (
-            (await snapshotSignature(await collectAccountSnapshot())) !==
-            startSignature
+            edited()
           ) {
             if (attempt < 2) continue;
             throw new Error(
@@ -232,8 +252,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
           if (!saved) throw new Error("Não foi possível confirmar o backup.");
           // New writes while the upload was running remain local and are merged on the next attempt.
           if (
-            (await snapshotSignature(await collectAccountSnapshot())) !==
-            startSignature
+            edited()
           ) {
             if (attempt < 2) continue;
             throw new Error(
@@ -241,6 +260,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
             );
           }
           if (startSignature !== (await snapshotSignature(next))) {
+            await waitForMediaIdle();
             applying.current = true;
             try {
               await applyAccountSnapshot(supabase, user.id, next);
@@ -279,14 +299,6 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   );
   useEffect(() => {
     if (!ready || !session || recovery) return;
-    const preferenceSignature = () =>
-      JSON.stringify(
-        Object.entries(localStorage).filter(([key]) =>
-          /^(lastchart-studio:|lastchart-awards:|lastchart-compare:|saved-eras:|spotlight-name:|lastchart-achievements:)/.test(
-            key,
-          ),
-        ),
-      );
     let debounce: ReturnType<typeof setTimeout> | undefined,
       preferences = preferenceSignature();
     const schedule = () => {
@@ -364,7 +376,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       ) : ready && !booting ? (
         <>{children}{entering&&<AccountLoading overlay message="Seu palco está pronto ✦"/>}</>
       ) : (
-        <AccountLoading message={status || "Afinando seu backstage…"}/>
+        <AccountLoading message={status || "Afinando seu backstage…"} onRetry={authFailed?()=>location.reload():undefined}/>
       )}
     </AccountContext.Provider>
   );
