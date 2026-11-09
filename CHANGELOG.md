@@ -1,5 +1,10 @@
 # Histórico de versões
 
+## 0.1.3 · beta · 2026-11-09
+
+- Adiciona saída da conta no perfil com transição musical e organiza os botões de conta no celular.
+- Remove a rolagem vazia do tutorial e estabiliza seu fundo e a aplicação do tema na abertura.
+
 ## 0.1.2 · beta · 2026-11-06
 
 - Mantém o backup adiado na troca imediata entre prévia e gravação.

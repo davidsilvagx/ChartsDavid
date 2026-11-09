@@ -250,6 +250,7 @@ export function Modal({
   wide = false,
   ambientImage,
   ambientActive = false,
+  inheritArtwork = true,
   className = '',
 }: {
   title: string;
@@ -259,10 +260,11 @@ export function Modal({
   wide?: boolean;
   ambientImage?: string;
   ambientActive?: boolean;
+  inheritArtwork?: boolean;
   className?: string;
 }) {
   const fallbackArtwork = useContext(ModalArtworkContext);
-  const modalImage = ambientImage ?? fallbackArtwork;
+  const modalImage = ambientImage ?? (inheritArtwork ? fallbackArtwork : undefined);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const titleId = useId();
   const closingRef = useRef(false);

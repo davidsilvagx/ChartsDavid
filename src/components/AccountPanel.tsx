@@ -4,7 +4,6 @@ import {
   CloudCheck,
   CloudUpload,
   KeyRound,
-  LogOut,
   Mail,
   ShieldCheck,
   UserRound,
@@ -12,6 +11,7 @@ import {
 import { supabase, authRedirect, accountError } from "../lib/supabase";
 import { DEMO_USER } from "../lib/types";
 import { useAccount } from "./AccountProvider";
+import { AccountLogout } from "./AccountLogout";
 
 export function AccountPanel() {
   const account = useAccount(),
@@ -136,7 +136,7 @@ export function AccountPanel() {
               {account.lastSync > 0 &&
                 ` Último backup: ${new Date(account.lastSync).toLocaleString("pt-BR")}.`}
             </p>
-            <div className="inline-actions">
+            <div className="inline-actions account-actions">
               <button
                 type="button"
                 className="button primary"
@@ -144,26 +144,9 @@ export function AccountPanel() {
                 onClick={() => void account.sync(undefined, true)}
               >
                 <CloudUpload size={16} />
-                {account.busy ? "Sincronizando…" : "Sincronizar agora"}
+                <span>{account.busy ? "Sincronizando…" : "Sincronizar agora"}</span>
               </button>
-              <button
-                type="button"
-                className="button"
-                disabled={account.busy || busy}
-                onClick={() => {
-                  setBusy(true);
-                  void account
-                    .signOut()
-                    .catch((e) =>
-                      setError(
-                        e instanceof Error ? e.message : accountError(e),
-                      ),
-                    )
-                    .finally(() => setBusy(false));
-                }}
-              >
-                <LogOut size={16} /> Sair deste aparelho
-              </button>
+              <AccountLogout disabled={busy}/>
               <button
                 type="button"
                 className="text-button"

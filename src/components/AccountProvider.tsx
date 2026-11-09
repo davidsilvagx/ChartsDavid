@@ -13,6 +13,7 @@ import {
 import { AccountLoading } from "./AccountLoading";
 import type { Session } from "@supabase/supabase-js";
 import { verifiedSession } from "../lib/verifiedSession";
+import { logoutWithTransition } from "../lib/logoutTransition";
 import { supabase } from "../lib/supabase";
 import { copyGuestDatabaseToAccount } from "../lib/storage";
 import {
@@ -56,6 +57,8 @@ export const useAccount = () => {
   return value;
 };
 export function AccountProvider({ children }: { children: ReactNode }) {
+  const [signingOut, setSigningOut] = useState(false);
+  const leaving = useRef(false);
   const [entering,setEntering]=useState(()=>{try{return sessionStorage.getItem("lastchart-account:entering")==="1";}catch{return false;}});
   const [session, setSession] = useState<Session | null>(null),
     [ready, setReady] = useState(false),
@@ -89,7 +92,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       let next: Session | null;
       try {next=await verifiedSession(supabase.auth);}
       catch {
-        if(alive.current && authAttempt===authGeneration.current){setReady(false);setAuthFailed(true);setStatus("Sua sessão não pôde ser confirmada. Verifique a conexão e tente novamente.");}
+        if(alive.current && authAttempt===authGeneration.current){setReady(false);setAuthFailed(true);setSigningOut(false);leaving.current=false;setStatus("Sua sessão não pôde ser confirmada. Verifique a conexão e tente novamente.");}
         return;
       }
       if (event === "PASSWORD_RECOVERY" && next) {
@@ -124,6 +127,9 @@ export function AccountProvider({ children }: { children: ReactNode }) {
         } catch (error) {
           switching.current = false;
           if(error instanceof Error && error.message==="session_changed"){void accept(null);return;}
+          setReady(false);
+          setSigningOut(false);
+          leaving.current = false;
           setAuthFailed(true);
           setStatus(
             "Não foi possível abrir o espaço da conta. Libere espaço no aparelho e tente novamente.",
@@ -157,7 +163,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   const sync = useCallback(
     async (preference?: "local" | "remote", force = false) => {
       const user = sessionRef.current?.user;
-      if (!user || running.current || (!preference && conflictRef.current))
+      if (!user || leaving.current || running.current || (!preference && conflictRef.current))
         return;
       if (!navigator.onLine) {
         setStatus(
@@ -345,11 +351,22 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     };
   }, [ready, session?.user.id, sync, recovery]);
   useEffect(()=>{if(!entering||!ready||!session||booting)return;const timer=setTimeout(()=>{sessionStorage.removeItem("lastchart-account:entering");setEntering(false);},950);return()=>clearTimeout(timer);},[entering,ready,session?.user.id,booting]);
+  useEffect(() => { if (ready && !session && signingOut) { leaving.current = false; setSigningOut(false); } }, [ready, session, signingOut]);
   const signOut = async () => {
+    if (leaving.current) return;
     if (running.current)
       throw new Error("Aguarde a sincronização terminar antes de sair.");
-    const { error } = await supabase.auth.signOut({ scope: "local" });
-    if (error) throw error;
+    leaving.current = true;
+    setSigningOut(true);
+    try {
+      const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches || document.documentElement.dataset.motion === 'reduced';
+      await logoutWithTransition(supabase.auth, reduced ? 0 : 450);
+      sessionStorage.removeItem('lastchart-account:entering');
+    } catch (error) {
+      leaving.current = false;
+      setSigningOut(false);
+      throw error;
+    }
   };
   return (
     <AccountContext.Provider
@@ -371,6 +388,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
         signOut,
       }}
     >
+      <div className="account-content" inert={signingOut} aria-hidden={signingOut || undefined}>
       {ready && (!session || recovery) ? (
         <Suspense fallback={<AccountLoading/>}><AccountGate/></Suspense>
       ) : ready && !booting ? (
@@ -378,6 +396,8 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       ) : (
         <AccountLoading message={status || "Afinando seu backstage…"} onRetry={authFailed?()=>location.reload():undefined}/>
       )}
+      </div>
+      {signingOut && <AccountLoading overlay exit message="Até o próximo play ✦"/>}
     </AccountContext.Provider>
   );
 }
