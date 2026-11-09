@@ -5,12 +5,14 @@ const AccountPanel = lazy(() =>
   import("./AccountPanel").then((m) => ({ default: m.AccountPanel })),
 );
 import { Modal } from "./UI";
-export function AccountEntry() {
+export function AccountEntry({ open: controlledOpen, onOpenChange }: { open?: boolean; onOpenChange?: (open: boolean) => void } = {}) {
   const account = useAccount(),
-    [open, setOpen] = useState(false);
+    [localOpen, setLocalOpen] = useState(false);
+  const open = controlledOpen ?? localOpen;
+  const setOpen = onOpenChange ?? setLocalOpen;
   useEffect(() => {
     if (account.recovery || account.conflict) setOpen(true);
-  }, [account.recovery,account.conflict]);
+  }, [account.recovery,account.conflict,setOpen]);
   useEffect(() => {
     const url = new URL(location.href);
     if (url.searchParams.get("account") === "callback") {
