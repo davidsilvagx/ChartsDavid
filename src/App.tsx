@@ -1,5 +1,5 @@
 import { rememberLoginAppearance } from './lib/loginAppearance';
-import { lazy, Suspense, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import {
   ArrowDownToLine,
@@ -53,6 +53,7 @@ import {
 import { workspaceOwner } from './lib/accountWorkspace';
 import { AppVersion } from './components/AppVersion';
 import { AccountEntry } from './components/AccountEntry';
+import { ProfileMenu } from './components/ProfileMenu';
 import { AchievementCelebration } from './components/AchievementCelebration';
 import { useData } from './lib/useData';
 import { HistoryExplorer } from './components/HistoryExplorer';
@@ -148,6 +149,7 @@ const kindLabels: Record<Kind, string> = { tracks: 'Músicas', albums: 'Álbuns'
 
 function App() {
   const [page, setPage] = useState<Page>('overview');
+  const [accountOpen, setAccountOpen] = useState(false);
   const [sidebarExpanded, setSidebarExpanded] = useState(false);
   const [chartsTab, setChartsTab] = useState<'weekly' | 'records' | 'live'>('weekly');
   const [kind, setKind] = useState<Kind>('tracks');
@@ -340,7 +342,7 @@ function App() {
   // Depois de trocar de perfil pelo tutorial, começa o download do histórico desse perfil.
   useEffect(() => { if (!syncAfterSwitch) return; const t = setTimeout(() => { setSyncAfterSwitch(false); void data.sync('all'); }, 500); return () => clearTimeout(t); }, [settings.user, syncAfterSwitch]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     document.documentElement.dataset.theme = dark ? 'dark' : 'light';
     document.documentElement.dataset.motion = reduced ? 'reduced' : 'full';
   }, [dark, reduced]);
@@ -661,7 +663,7 @@ function App() {
           </button>
 
           <div className="topbar-actions">
-            <AccountEntry/>
+            <AccountEntry open={accountOpen} onOpenChange={setAccountOpen}/>
             <span className={`connection ${online ? '' : 'offline'}`}>
               <i />
               <span>{online ? 'Online' : 'Offline'}</span>
@@ -677,18 +679,11 @@ function App() {
               <Disc3 size={18} />
             </button>
             <button type="button" className={`icon-button settings-shortcut ${page === 'settings' ? 'active' : ''}`} aria-label="Abrir Ajustes" aria-current={page === 'settings' ? 'page' : undefined} onClick={() => navigate('settings')}><NavSettings size={18} active={page === 'settings'} /></button>
-            <button
-              type="button"
-              className={`profile-button ${isGuest ? 'is-guest' : ''}`}
-              onClick={() => isGuest ? setConnectModal(true) : setAvatarModal(true)}
-              aria-label={isGuest ? 'Perfil de demonstração (Convidado) · Toque para conectar seu Last.fm' : `Trocar avatar do perfil ${profile?.name ?? settings.user ?? 'Perfil'}`}
-            >
-              <ProfileAvatar profile={profile} avatar={settings.avatar} className="avatar" />
-              <span className="profile-meta">
-                <strong>{isGuest ? 'Convidado' : (profile?.name ?? settings.user ?? 'Perfil')}</strong>
-                <small>{isGuest ? 'Toque p/ conectar' : `${cached.length} sem. salvas`}</small>
-              </span>
-            </button>
+            <ProfileMenu profile={profile} avatar={settings.avatar} guest={isGuest}
+              username={profile?.name ?? settings.user ?? 'Perfil'} savedWeeks={cached.length}
+              onConnect={() => setConnectModal(true)} onAvatar={() => setAvatarModal(true)}
+              onAccount={() => setAccountOpen(true)}/>
+
           </div>
         </header>
         <QuickAccess onOpen={quickOpen}/>
