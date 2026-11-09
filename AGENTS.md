@@ -11,3 +11,8 @@
 - Execute `npm run version:check`, os testes adequados e o build antes de publicar. O CI rejeita alterações de produção sem avanço de versão.
 - Documentação e testes sem mudança de produção não exigem nova versão. Se uma entrega já recebeu versão e ainda não foi publicada, conclua suas correções dentro dessa mesma entrega.
 - O selo de versão é centralizado em `AppVersion`; preserve sua apresentação discreta.
+
+## Envios e custo de deploy
+
+- Prepare e teste a entrega inteira antes do envio ao GitHub. Prefira um único push com todas as alterações; não crie um commit remoto por arquivo, pois cada envio pode disparar outro build na Vercel.
+- Quando a CLI não tiver escrita, use uma publicação em lote pela sessão autorizada e confirme que a árvore remota corresponde à árvore testada antes do merge.
